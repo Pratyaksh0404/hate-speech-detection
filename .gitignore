@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# --- Data (raw datasets are large / not ours to redistribute) ---
+data/text/*.csv
+data/multimodal/*
+!data/text/.gitkeep
+!data/multimodal/.gitkeep
+
+# --- Model checkpoints & large artifacts (go to HuggingFace Hub instead) ---
+*.pt
+*.pth
+*.h5
+*.ckpt
+*.bin
+checkpoints/
+runs/
+mlruns/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Env / secrets ---
+.env
+*.log
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
