@@ -38,11 +38,28 @@ Design decisions (documented per master_plan.md section 5.2, not left implicit):
    (TF-IDF) stage only, via sklearn's `stop_words='english'` param in
    src/models/baseline.py — it is not baked into this shared cleaner.
 
+7. HTML entities (e.g. "&amp;") -> unescaped BEFORE anything else runs.
+   Twitter's API frequently returns raw, un-decoded HTML entities in tweet
+   text. Without this step, "&amp;" becomes a stray "amp" token once
+   punctuation stripping removes the "&" — this actually showed up as a
+   real artifact in the class-1/2 wordclouds during EDA, which is how we
+   caught it. Decoding first means "&amp;" correctly becomes "&", which
+   then gets dropped by punctuation stripping like any other symbol,
+   instead of leaving noise behind.
+
+8. Retweet marker "rt" -> stripped as a standalone token (word-boundary
+   match, so it never touches real words containing "rt" like "part").
+   This is a Twitter platform artifact, not language content — the exact
+   same category as URLs and @mentions (metadata about how the tweet was
+   posted, not what it says) — and it was visibly dominating the "Neither"
+   class wordcloud during EDA, drowning out actual signal words.
+
 clean_text() is designed to be idempotent: clean_text(clean_text(x)) == clean_text(x).
 This matters both for correctness and because tests/test_preprocessing.py
 checks idempotency directly.
 """
 
+import html
 import re
 import emoji
 import nltk
@@ -76,6 +93,7 @@ _lemmatizer = WordNetLemmatizer()
 _URL_RE = re.compile(r"https?://\S+|www\.\S+")
 _MENTION_RE = re.compile(r"@\w+")
 _HASHTAG_RE = re.compile(r"#(\w+)")
+_RETWEET_MARKER_RE = re.compile(r"\brt\b")
 _CAMELCASE_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _WHITESPACE_RE = re.compile(r"\s+")
 # Keep letters, numbers, whitespace, and the ':' '_' characters that
@@ -99,6 +117,11 @@ def split_camel_case(word: str) -> str:
 def unwrap_hashtags(text: str) -> str:
     """'#BuildTheWall is bad' -> 'Build The Wall is bad' (drop '#', keep + split words)"""
     return _HASHTAG_RE.sub(lambda m: split_camel_case(m.group(1)), text)
+
+
+def strip_retweet_marker(text: str) -> str:
+    """'rt someone said something' -> ' someone said something' (whole-token 'rt' only)"""
+    return _RETWEET_MARKER_RE.sub(" ", text)
 
 
 def demojize_text(text: str) -> str:
@@ -132,15 +155,19 @@ def lemmatize_text(text: str) -> str:
     return " ".join(lemmas)
 
 
-def clean_text(text, lemmatize: bool = True) -> str:
+def clean_text(text, lemmatize: bool = True, strip_rt: bool = True) -> str:
     """
     Full cleaning pipeline, applied in this order:
-    lowercase -> strip URLs -> strip mentions -> unwrap hashtags ->
-    demojize emojis -> drop other punctuation -> normalize whitespace ->
-    (optional) lemmatize.
+    unescape HTML entities -> lowercase -> strip URLs -> strip mentions ->
+    unwrap hashtags -> (optional) strip retweet marker -> demojize emojis ->
+    drop other punctuation -> normalize whitespace -> (optional) lemmatize.
 
     Handles edge cases explicitly: None/NaN -> "", empty string -> "",
     emoji-only text -> its demojized token text (never crashes).
+
+    strip_rt=True by default (see design decision 8 in the module docstring);
+    set False if you ever want to keep the raw retweet marker for some
+    other analysis.
     """
     if text is None or (isinstance(text, float)):  # covers NaN from pandas
         return ""
@@ -149,10 +176,13 @@ def clean_text(text, lemmatize: bool = True) -> str:
     if text.strip() == "":
         return ""
 
+    text = html.unescape(text)
     text = text.lower()
     text = strip_urls(text)
     text = strip_mentions(text)
     text = unwrap_hashtags(text)
+    if strip_rt:
+        text = strip_retweet_marker(text)
     text = demojize_text(text)
     text = _NON_ALLOWED_CHARS_RE.sub(" ", text)
     text = normalize_whitespace(text)

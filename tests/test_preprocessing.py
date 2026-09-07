@@ -90,3 +90,14 @@ def test_lemmatization_reduces_inflection():
     out = clean_text("the dogs are running quickly")
     # after lemmatization 'running' -> 'run', 'dogs' -> 'dog'
     assert "running" not in out.split() or "run" in out
+
+def test_html_entity_not_left_as_stray_token():
+    result = clean_text("guns &amp; roses", lemmatize=False)
+    assert "amp" not in result.split()
+
+
+def test_retweet_marker_stripped_but_real_words_kept():
+    result = clean_text("rt someone said something", lemmatize=False)
+    assert "rt" not in result.split()
+    kept = clean_text("this is a great part of the show", lemmatize=False)
+    assert "part" in kept.split()

@@ -23,7 +23,7 @@ tests.
 ## Progress log
 
 - [x] Repo initialized, `.gitignore`, requirements scaffolded
-- [ ] Text data loaded, cleaned, EDA complete
+- [x] Text data loaded, cleaned, EDA complete (class-weighted loss chosen for imbalance — see notebooks/EDA_text.ipynb section 7)
 - [ ] Baseline (TF-IDF + LogReg/SVM)
 - [ ] BiLSTM
 - [ ] CNN-BiLSTM
