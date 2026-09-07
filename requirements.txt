@@ -8,3 +8,4 @@ seaborn>=0.12
 wordcloud>=1.9
 jupyter>=1.0
 pytest>=7.4
+joblib>=1.4

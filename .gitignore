@@ -15,15 +15,17 @@ data/multimodal/*
 !data/text/.gitkeep
 !data/multimodal/.gitkeep
 
-# --- Model checkpoints & large artifacts (go to HuggingFace Hub instead) ---
 *.pt
 *.pth
 *.h5
 *.ckpt
 *.bin
-checkpoints/
-runs/
-mlruns/
+*.joblib
+*.pkl
+/models/
+/checkpoints/
+/runs/
+/mlruns/
 
 # --- Notebooks ---
 .ipynb_checkpoints/
