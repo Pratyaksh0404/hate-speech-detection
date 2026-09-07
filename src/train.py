@@ -96,7 +96,7 @@ def run_epoch(model, loader, criterion, optimizer=None):
 
 
 def train_model(model, train_loader, val_loader, class_weights, name: str,
-                 n_epochs: int = 10, lr: float = 1e-3, patience: int = 3):
+                 n_epochs: int = 10, lr: float = 1e-3, patience: int = 3, weight_decay: float = 0.0):
     """
     Early stopping on VAL MACRO-F1, not val loss — macro-F1 is our headline
     metric (master_plan.md section 6), and on a dataset this imbalanced,
@@ -106,7 +106,7 @@ def train_model(model, train_loader, val_loader, class_weights, name: str,
     """
     model.to(DEVICE)
     criterion = nn.CrossEntropyLoss(weight=class_weights.to(DEVICE))
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     best_val_f1 = -1.0
     epochs_without_improvement = 0
@@ -166,6 +166,9 @@ def main():
     parser.add_argument("--glove_path", default="data/text/glove.6B.100d.txt")
     parser.add_argument("--embedding_dim", type=int, default=100)
     parser.add_argument("--n_epochs", type=int, default=10)
+    parser.add_argument("--hidden_dim", type=int, default=128)
+    parser.add_argument("--dropout", type=float, default=0.3)
+    parser.add_argument("--weight_decay", type=float, default=0.0)
     args = parser.parse_args()
 
     set_seed()
@@ -183,11 +186,11 @@ def main():
     if args.model == "bilstm":
         from src.models.bilstm import BiLSTMClassifier
 
-        model = BiLSTMClassifier(embedding_matrix=embedding_matrix, hidden_dim=128, n_classes=3, dropout=0.3)
+        model = BiLSTMClassifier(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim, n_classes=3, dropout=args.dropout)
     else:
         raise ValueError(f"unknown model {args.model}")
 
-    model, history = train_model(model, train_loader, val_loader, class_weights, name=args.model, n_epochs=args.n_epochs)
+    model, history = train_model(model, train_loader, val_loader, class_weights, name=args.model, n_epochs=args.n_epochs, weight_decay=args.weight_decay)
     test_metrics = evaluate_on_test(model, test_loader)
 
     def predict_one(text: str) -> None:

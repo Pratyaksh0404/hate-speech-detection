@@ -1,0 +1,94 @@
+{
+  "model_name": "bilstm",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.7619934339354812,
+      "val_loss": 0.5038989451125208,
+      "val_macro_f1": 0.6937685619896733
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.4820878283177225,
+      "val_loss": 0.4829664056887224,
+      "val_macro_f1": 0.7372689140894136
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.3962027765718147,
+      "val_loss": 0.47642964022078776,
+      "val_macro_f1": 0.699751610681255
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.32709241412655604,
+      "val_loss": 0.5838601758173552,
+      "val_macro_f1": 0.7108153967974206
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.2738943123765732,
+      "val_loss": 0.5520136193795637,
+      "val_macro_f1": 0.6868963260325737
+    }
+  ],
+  "test_metrics": {
+    "accuracy": 0.8625605164066703,
+    "macro_f1": 0.7309612753883948,
+    "macro_precision": 0.6906253093880492,
+    "macro_recall": 0.804916888111245,
+    "confusion_matrix": [
+      [
+        129,
+        59,
+        26
+      ],
+      [
+        235,
+        2485,
+        159
+      ],
+      [
+        17,
+        15,
+        593
+      ]
+    ],
+    "classification_report": {
+      "Hate Speech": {
+        "precision": 0.33858267716535434,
+        "recall": 0.602803738317757,
+        "f1-score": 0.4336134453781513,
+        "support": 214.0
+      },
+      "Offensive Language": {
+        "precision": 0.9710824540836264,
+        "recall": 0.8631469260159778,
+        "f1-score": 0.9139389481426995,
+        "support": 2879.0
+      },
+      "Neither": {
+        "precision": 0.7622107969151671,
+        "recall": 0.9488,
+        "f1-score": 0.8453314326443335,
+        "support": 625.0
+      },
+      "accuracy": 0.8625605164066703,
+      "macro avg": {
+        "precision": 0.6906253093880492,
+        "recall": 0.804916888111245,
+        "f1-score": 0.7309612753883948,
+        "support": 3718.0
+      },
+      "weighted avg": {
+        "precision": 0.8995655799602273,
+        "recall": 0.8625605164066703,
+        "f1-score": 0.8747594551953913,
+        "support": 3718.0
+      }
+    }
+  },
+  "latency_ms_per_sample": 1.0627966700008074,
+  "vocab_size": 6767,
+  "device_used_for_training": "cuda"
+}

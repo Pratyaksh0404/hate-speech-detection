@@ -25,7 +25,7 @@ tests.
 - [x] Repo initialized, `.gitignore`, requirements scaffolded
 - [x] Text data loaded, cleaned, EDA complete (class-weighted loss chosen for imbalance — see notebooks/EDA_text.ipynb section 7)
 - [ ] Baseline (TF-IDF + LogReg/SVM)
-- [ ] BiLSTM
+- [x] BiLSTM (test macro-F1 0.7310, essentially tied with baseline — see results/bilstm.json; CNN-BiLSTM next)
 - [ ] CNN-BiLSTM
 - [ ] BiLSTM + Attention
 - [ ] DistilBERT fine-tune
