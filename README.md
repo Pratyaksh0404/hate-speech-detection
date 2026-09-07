@@ -24,7 +24,7 @@ tests.
 
 - [x] Repo initialized, `.gitignore`, requirements scaffolded
 - [x] Text data loaded, cleaned, EDA complete (class-weighted loss chosen for imbalance — see notebooks/EDA_text.ipynb section 7)
-- [ ] Baseline (TF-IDF + LogReg/SVM)
+- [x] Baseline (TF-IDF + LogReg/SVM) — LogReg test macro-F1 0.7362 / acc 0.8693, LinearSVM test macro-F1 0.7332 / acc 0.8946 — see results/baseline_logreg.json, results/baseline_linearsvm.json
 - [x] BiLSTM (test macro-F1 0.7310, essentially tied with baseline — see results/bilstm.json; CNN-BiLSTM next)
 - [ ] CNN-BiLSTM
 - [ ] BiLSTM + Attention
