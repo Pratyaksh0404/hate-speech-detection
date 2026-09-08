@@ -162,7 +162,7 @@ def evaluate_on_test(model, test_loader):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["bilstm", "cnn_bilstm"], default="bilstm")
+    parser.add_argument("--model", choices=["bilstm", "cnn_bilstm", "bilstm_attention"], default="bilstm")
     parser.add_argument("--glove_path", default="data/text/glove.6B.100d.txt")
     parser.add_argument("--embedding_dim", type=int, default=100)
     parser.add_argument("--n_epochs", type=int, default=10)
@@ -175,6 +175,7 @@ def main():
     parser.add_argument("--dropout", type=float, default=0.5)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
     parser.add_argument("--cnn_out_channels", type=int, default=64)
+    parser.add_argument("--patience", type=int, default=3)
     # parse_known_args (not parse_args) so this is robust even if something
     # else's arguments leak into sys.argv -- e.g. Jupyter/Colab kernels pass
     # their own "-f <connection_file>.json" flag when a script's main() runs
@@ -212,6 +213,15 @@ def main():
             n_classes=3,
             dropout=args.dropout,
         )
+    elif args.model == "bilstm_attention":
+        from src.models.bilstm_attention import BiLSTMAttentionClassifier
+
+        model = BiLSTMAttentionClassifier(
+            embedding_matrix=embedding_matrix,
+            hidden_dim=args.hidden_dim,
+            n_classes=3,
+            dropout=args.dropout,
+        )
     else:
         raise ValueError(f"unknown model {args.model}")
 
@@ -223,6 +233,7 @@ def main():
         name=args.model,
         n_epochs=args.n_epochs,
         weight_decay=args.weight_decay,
+        patience=args.patience,
     )
     test_metrics = evaluate_on_test(model, test_loader)
 

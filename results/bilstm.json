@@ -88,7 +88,7 @@
       }
     }
   },
-  "latency_ms_per_sample": 1.0627966700008074,
+  "latency_ms_per_sample": 1.1226625650010646,
   "vocab_size": 6767,
   "device_used_for_training": "cuda"
 }
