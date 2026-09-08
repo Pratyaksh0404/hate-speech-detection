@@ -162,14 +162,24 @@ def evaluate_on_test(model, test_loader):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", choices=["bilstm"], default="bilstm")
+    parser.add_argument("--model", choices=["bilstm", "cnn_bilstm"], default="bilstm")
     parser.add_argument("--glove_path", default="data/text/glove.6B.100d.txt")
     parser.add_argument("--embedding_dim", type=int, default=100)
     parser.add_argument("--n_epochs", type=int, default=10)
-    parser.add_argument("--hidden_dim", type=int, default=128)
-    parser.add_argument("--dropout", type=float, default=0.3)
-    parser.add_argument("--weight_decay", type=float, default=0.0)
-    args = parser.parse_args()
+    # defaults below carry forward what actually worked for BiLSTM (rung 2)
+    # after tuning -- hidden_dim=128/dropout=0.3/weight_decay=0 overfit
+    # badly (test macro-F1 0.7184, below baseline); hidden_dim=64/
+    # dropout=0.5/weight_decay=1e-5 fixed it (test macro-F1 0.7310).
+    # Still overridable via CLI for further tuning per model.
+    parser.add_argument("--hidden_dim", type=int, default=64)
+    parser.add_argument("--dropout", type=float, default=0.5)
+    parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--cnn_out_channels", type=int, default=64)
+    # parse_known_args (not parse_args) so this is robust even if something
+    # else's arguments leak into sys.argv -- e.g. Jupyter/Colab kernels pass
+    # their own "-f <connection_file>.json" flag when a script's main() runs
+    # inside the notebook process instead of as a real subprocess.
+    args, _unknown_args = parser.parse_known_args()
 
     set_seed()
     print(f"device: {DEVICE}")
@@ -186,11 +196,34 @@ def main():
     if args.model == "bilstm":
         from src.models.bilstm import BiLSTMClassifier
 
-        model = BiLSTMClassifier(embedding_matrix=embedding_matrix, hidden_dim=args.hidden_dim, n_classes=3, dropout=args.dropout)
+        model = BiLSTMClassifier(
+            embedding_matrix=embedding_matrix,
+            hidden_dim=args.hidden_dim,
+            n_classes=3,
+            dropout=args.dropout,
+        )
+    elif args.model == "cnn_bilstm":
+        from src.models.cnn_bilstm import CNNBiLSTMClassifier
+
+        model = CNNBiLSTMClassifier(
+            embedding_matrix=embedding_matrix,
+            cnn_out_channels=args.cnn_out_channels,
+            hidden_dim=args.hidden_dim,
+            n_classes=3,
+            dropout=args.dropout,
+        )
     else:
         raise ValueError(f"unknown model {args.model}")
 
-    model, history = train_model(model, train_loader, val_loader, class_weights, name=args.model, n_epochs=args.n_epochs, weight_decay=args.weight_decay)
+    model, history = train_model(
+        model,
+        train_loader,
+        val_loader,
+        class_weights,
+        name=args.model,
+        n_epochs=args.n_epochs,
+        weight_decay=args.weight_decay,
+    )
     test_metrics = evaluate_on_test(model, test_loader)
 
     def predict_one(text: str) -> None:
