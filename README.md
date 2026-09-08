@@ -23,12 +23,12 @@ tests.
 ## Progress log
 
 - [x] Repo initialized, `.gitignore`, requirements scaffolded
-- [x] Text data loaded, cleaned, EDA complete (class-weighted loss chosen for imbalance — see notebooks/EDA_text.ipynb section 7)
-- [x] Baseline (TF-IDF + LogReg/SVM) — LogReg test macro-F1 0.7362 / acc 0.8693, LinearSVM test macro-F1 0.7332 / acc 0.8946 — see results/baseline_logreg.json, results/baseline_linearsvm.json
-- [x] BiLSTM (test macro-F1 0.7310, essentially tied with baseline — see results/bilstm.json; CNN-BiLSTM next)
-- [x] CNN-BiLSTM — test macro-F1 0.7462, test accuracy 0.8808 — best model so far, beats both baselines and plain BiLSTM (multi-kernel CNN feature extraction + BiLSTM sequential context)
-- [x] BiLSTM + Attention — test macro-F1 0.7358, test accuracy 0.8687 — additive attention over BiLSTM outputs (masked correctly at padding), attention weights available for later explainability/error-analysis
-- [ ] DistilBERT fine-tune
+- [x] Text data loaded, cleaned, EDA complete
+- [x] Baseline (TF-IDF + LogReg/SVM)
+- [x] BiLSTM
+- [x] CNN-BiLSTM
+- [x] BiLSTM + Attention
+- [x] DistilBERT fine-tune
 - [ ] Text bias audit
 - [ ] Multimodal dataset inspected
 - [ ] Image + fusion branch

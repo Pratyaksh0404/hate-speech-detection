@@ -1,0 +1,88 @@
+{
+  "model_name": "distilbert",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5498998201346269,
+      "val_loss": 0.42053118946091855,
+      "val_macro_f1": 0.6977079589030145
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.37730487171096017,
+      "val_loss": 0.436863352256542,
+      "val_macro_f1": 0.7652122433114741
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.28498174586082775,
+      "val_loss": 0.5011313810279255,
+      "val_macro_f1": 0.7353385988708233
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.1960114035468703,
+      "val_loss": 0.6405767289347518,
+      "val_macro_f1": 0.7545219532996595
+    }
+  ],
+  "test_metrics": {
+    "accuracy": 0.8994082840236687,
+    "macro_f1": 0.7663173380344158,
+    "macro_precision": 0.737937245596326,
+    "macro_recall": 0.8043117645340251,
+    "confusion_matrix": [
+      [
+        117,
+        74,
+        23
+      ],
+      [
+        156,
+        2632,
+        91
+      ],
+      [
+        14,
+        16,
+        595
+      ]
+    ],
+    "classification_report": {
+      "Hate Speech": {
+        "precision": 0.4076655052264808,
+        "recall": 0.5467289719626168,
+        "f1-score": 0.46706586826347307,
+        "support": 214.0
+      },
+      "Offensive Language": {
+        "precision": 0.9669360764144012,
+        "recall": 0.9142063216394581,
+        "f1-score": 0.9398321728262811,
+        "support": 2879.0
+      },
+      "Neither": {
+        "precision": 0.8392101551480959,
+        "recall": 0.952,
+        "f1-score": 0.8920539730134932,
+        "support": 625.0
+      },
+      "accuracy": 0.8994082840236687,
+      "macro avg": {
+        "precision": 0.737937245596326,
+        "recall": 0.8043117645340251,
+        "f1-score": 0.7663173380344158,
+        "support": 3718.0
+      },
+      "weighted avg": {
+        "precision": 0.9132748061008842,
+        "recall": 0.8994082840236687,
+        "f1-score": 0.9045892023960945,
+        "support": 3718.0
+      }
+    }
+  },
+  "latency_ms_per_sample": 5.272994679999101,
+  "device_used_for_training": "cuda",
+  "pretrained_checkpoint": "distilbert-base-uncased"
+}
