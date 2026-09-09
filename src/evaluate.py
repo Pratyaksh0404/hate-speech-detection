@@ -1,3 +1,12 @@
+"""
+Shared evaluation utilities for every model in the text ladder (baseline
+through DistilBERT), and later the multimodal fusion model. Writing this
+once here means every rung of the ladder is scored identically, so the
+final comparison table (master_plan.md section 4.6) is an honest,
+apples-to-apples comparison rather than five different ad-hoc scripts
+each computing metrics slightly differently.
+"""
+
 import json
 import os
 import time
@@ -14,12 +23,19 @@ from sklearn.metrics import (
 LABEL_NAMES = ["Hate Speech", "Offensive Language", "Neither"]
 
 
-def compute_metrics(y_true, y_pred) -> dict:
+def compute_metrics(y_true, y_pred, target_names: list = None) -> dict:
     """
     Macro-F1 is the headline metric (master_plan.md section 6 — accuracy
     alone is misleading on this imbalanced a dataset), but we compute and
     store everything so later analysis/README tables have full context.
+
+    target_names defaults to the 3-class text-ladder label names
+    (LABEL_NAMES) for backward compatibility with every existing caller.
+    Pass e.g. ["Non-offensive", "Offensive"] for the binary multimodal
+    task — using the wrong label count/names here would crash or silently
+    mislabel the classification report.
     """
+    target_names = target_names or LABEL_NAMES
     return {
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "macro_f1": float(f1_score(y_true, y_pred, average="macro")),
@@ -33,7 +49,7 @@ def compute_metrics(y_true, y_pred) -> dict:
         "classification_report": classification_report(
             y_true,
             y_pred,
-            target_names=LABEL_NAMES,
+            target_names=target_names,
             output_dict=True,
             zero_division=0,
         ),
