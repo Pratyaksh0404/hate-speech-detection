@@ -105,7 +105,7 @@ comparison above stays in the repo as documented evidence for why.
 - [x] BiLSTM + Attention
 - [x] DistilBERT fine-tune
 - [x] Text bias audit
-- [ ] Multimodal dataset inspected
+- [x] Multimodal dataset inspected
 - [ ] Image + fusion branch
 - [ ] Multimodal bias audit
 - [ ] FastAPI backend
