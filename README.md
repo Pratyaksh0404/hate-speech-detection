@@ -88,6 +88,31 @@ content is treated differently than equivalent offensive SAE content, or whether
 model *confidence* (not just the final prediction) differs by dialect. Those
 would be reasonable extensions, not covered here.
 
+## Image-Specific Bias Check (Required Check)
+
+Tested whether the image-only model's prediction changes under three superficial
+perturbations that don't alter actual content: a skin-tone-like hue shift,
+brightness adjustment, and background blur (n=20 test images).
+
+| Perturbation | Flip rate | Mean Δ P(offensive) | p-value (paired t-test) |
+|---|---|---|---|
+| Hue shift | 15.0% | −0.063 | 0.045 |
+| Brightness | 20.0% | +0.002 | 0.943 |
+| Blur | 20.0% | −0.026 | 0.437 |
+
+**No strong evidence of systematic bias.** Brightness and blur show no meaningful
+signal. Hue shift shows a small, borderline-significant decrease in predicted
+offensiveness (p=0.045) — but with 3 perturbation types tested, the
+multiple-comparison-corrected threshold is p<0.017, which this does not clear.
+We report this as a mild trend worth a larger follow-up sample, not a confirmed
+finding — over-claiming either "no bias" or "confirmed bias" from n=20 would be
+dishonest in either direction.
+
+Context: the image-only model's overall signal is weak (test macro-F1 0.51,
+barely above chance), so some prediction instability under any perturbation,
+including content-irrelevant ones, is expected on its own and doesn't
+automatically indicate targeted bias.
+
 **Deployment decision:** given the image branch does not add measurable value
 on this dataset, the deployed app extracts text from uploaded images via OCR
 and classifies that text with the text-only DistilBERT model, rather than
@@ -106,8 +131,11 @@ comparison above stays in the repo as documented evidence for why.
 - [x] DistilBERT fine-tune
 - [x] Text bias audit
 - [x] Multimodal dataset inspected
-- [ ] Image + fusion branch
-- [ ] Multimodal bias audit
+- [x] Image + fusion branch
+- [x] Multimodal bias audit
+- [ ] Qualitative error analysis (10-15 misclassified examples, categorized)
+- [ ] LIME explainability (text predictions)
+- [ ] Grad-CAM visualizations (image predictions)
 - [ ] FastAPI backend
 - [ ] Frontend
 - [ ] CI + deployment
