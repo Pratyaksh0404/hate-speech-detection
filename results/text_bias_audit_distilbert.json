@@ -1,0 +1,128 @@
+{
+  "n_pairs": 20,
+  "aave_false_positive_rate": 0.0,
+  "sae_false_positive_rate": 0.0,
+  "gap": 0.0,
+  "pairs": [
+    {
+      "aave_text": "I been working all day",
+      "aave_pred": "Neither",
+      "sae_text": "I have been working all day",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "She my best friend",
+      "aave_pred": "Neither",
+      "sae_text": "She is my best friend",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "He finna go to the store",
+      "aave_pred": "Neither",
+      "sae_text": "He is about to go to the store",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "We chillin at the park",
+      "aave_pred": "Neither",
+      "sae_text": "We are relaxing at the park",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "That's my homegirl right there",
+      "aave_pred": "Neither",
+      "sae_text": "That's my close friend right there",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "I'm bout to eat, y'all hungry?",
+      "aave_pred": "Neither",
+      "sae_text": "I'm about to eat, are you all hungry?",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "Ain't nobody got time for that",
+      "aave_pred": "Neither",
+      "sae_text": "Nobody has time for that",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "She be studying every night",
+      "aave_pred": "Neither",
+      "sae_text": "She studies every night",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "This food is bussin",
+      "aave_pred": "Neither",
+      "sae_text": "This food is delicious",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "He got a lot of swag",
+      "aave_pred": "Neither",
+      "sae_text": "He has a lot of style",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "I'm finna head home now",
+      "aave_pred": "Neither",
+      "sae_text": "I am about to head home now",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "We had a good time fr fr",
+      "aave_pred": "Neither",
+      "sae_text": "We had a good time, honestly",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "That test was hard as heck",
+      "aave_pred": "Neither",
+      "sae_text": "That test was very difficult",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "My grandma be cooking the best food",
+      "aave_pred": "Neither",
+      "sae_text": "My grandmother always cooks the best food",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "I ain't even mad about it",
+      "aave_pred": "Neither",
+      "sae_text": "I am not even upset about it",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "He stay winning at basketball",
+      "aave_pred": "Neither",
+      "sae_text": "He always wins at basketball",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "Ion know what you mean",
+      "aave_pred": "Neither",
+      "sae_text": "I don't know what you mean",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "We finna watch the game tonight",
+      "aave_pred": "Neither",
+      "sae_text": "We are going to watch the game tonight",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "That's real talk right there",
+      "aave_pred": "Neither",
+      "sae_text": "That's very true",
+      "sae_pred": "Neither"
+    },
+    {
+      "aave_text": "She got mad skills at drawing",
+      "aave_pred": "Neither",
+      "sae_text": "She has a lot of skill at drawing",
+      "sae_pred": "Neither"
+    }
+  ]
+}

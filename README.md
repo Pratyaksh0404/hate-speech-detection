@@ -57,6 +57,37 @@ project's much larger text-only dataset (24,783 rows), reached **89.94%
 accuracy**. Same methodology, same model family — the gap here is dataset
 size (445 vs. 24,783 training rows), not model quality.
 
+## Bias Audit: AAVE vs. Standard American English (Required Check)
+
+The Davidson-style dataset is documented in fairness research (Sap et al., 2019,
+"The Risk of Racial Bias in Hate Speech Detection") to over-flag African-American
+Vernacular English (AAVE) as offensive. We tested this directly with 20
+hand-constructed sentence pairs — each pair expresses the same clearly benign,
+everyday sentiment (no offensive content in either version), once in AAVE, once
+in Standard American English. True label for every pair is "Neither"; any gap in
+false-positive rate reveals dialect bias.
+
+| Model | AAVE false-positive rate | SAE false-positive rate | Gap |
+|---|---|---|---|
+| Baseline (TF-IDF + LogReg) | 40.0% | 20.0% | **20.0 pts** |
+| **DistilBERT (deployed model)** | **0.0%** | **0.0%** | **0.0 pts** |
+
+**Baseline reproduces the documented bias clearly** — e.g. "that test was hard as
+heck" flagged Offensive, "that test was very difficult" not; "she got mad skills
+at drawing" flagged, "she has a lot of skill" not. This confirms the audit is
+genuinely sensitive, not trivially passing everything.
+
+**DistilBERT shows zero gap on this test** — the model we've chosen to deploy
+does not reproduce the classic AAVE bias. Testing baseline alongside it is what
+makes this credible: a clean result on an audit that catches nothing would prove
+little.
+
+**Scope limitation, stated honestly**: this audit measures false positives on
+clearly *benign* text only. It does not test whether genuinely offensive AAVE
+content is treated differently than equivalent offensive SAE content, or whether
+model *confidence* (not just the final prediction) differs by dialect. Those
+would be reasonable extensions, not covered here.
+
 **Deployment decision:** given the image branch does not add measurable value
 on this dataset, the deployed app extracts text from uploaded images via OCR
 and classifies that text with the text-only DistilBERT model, rather than
@@ -73,7 +104,7 @@ comparison above stays in the repo as documented evidence for why.
 - [x] CNN-BiLSTM
 - [x] BiLSTM + Attention
 - [x] DistilBERT fine-tune
-- [ ] Text bias audit
+- [x] Text bias audit
 - [ ] Multimodal dataset inspected
 - [ ] Image + fusion branch
 - [ ] Multimodal bias audit
