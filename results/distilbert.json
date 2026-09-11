@@ -18,12 +18,6 @@
       "train_loss": 0.28498174586082775,
       "val_loss": 0.5011313810279255,
       "val_macro_f1": 0.7353385988708233
-    },
-    {
-      "epoch": 4,
-      "train_loss": 0.1960114035468703,
-      "val_loss": 0.6405767289347518,
-      "val_macro_f1": 0.7545219532996595
     }
   ],
   "test_metrics": {
@@ -82,7 +76,7 @@
       }
     }
   },
-  "latency_ms_per_sample": 5.272994679999101,
+  "latency_ms_per_sample": 5.587682299999415,
   "device_used_for_training": "cuda",
   "pretrained_checkpoint": "distilbert-base-uncased"
 }

@@ -113,6 +113,42 @@ barely above chance), so some prediction instability under any perturbation,
 including content-irrelevant ones, is expected on its own and doesn't
 automatically indicate targeted bias.
 
+## Qualitative Error Analysis (Required)
+
+DistilBERT misclassified 375/3718 test examples (10.1%). Sample of 15 examined
+directly, plus LIME explanations on 5, reveal a consistent pattern:
+
+**The model's decisions are driven heavily by the presence of specific lexical
+triggers (particular slurs), not deeper contextual understanding of intent or
+target.**
+
+- **Slur presence overrides context** (dominant pattern): personal insults using
+  slurs (annotated "Offensive") get escalated to "Hate Speech" purely because a
+  slur is present, regardless of whether the speech is actually targeted,
+  systematic hate against a group. LIME confirms this directly — in all 5
+  explained examples, one slur token carries +0.4 to +0.8 weight, an almost
+  single-word-decisive influence (e.g. "faggot" +0.556 in a tweet that's road-rage
+  directed at one driver, not group-targeted hate).
+- **Offensive content without explicit slur vocabulary gets missed**: coded/
+  indirect language ("ghetto," "monkey," ableist slang used non-personally) is
+  frequently misclassified as "Neither" when it avoids the model's apparent
+  learned trigger vocabulary.
+- **The same pattern misfires the other direction**: a wordplay/rhyme tweet
+  referencing "Aunt Jemima" (annotated "Neither" by humans) gets flagged
+  "Offensive," apparently from the racially-loaded reference alone, without
+  grasping it wasn't used as an attack.
+
+This is a genuine limitation worth stating plainly, not something to hide — and
+it's partly a reflection of real difficulty in the underlying task: the original
+Davidson dataset paper documents low inter-annotator agreement on exactly this
+Hate-vs-Offensive boundary, because the distinction is subtle even for humans.
+We are not attempting to engineer around this here; it would require richer
+contextual modeling or better-labeled training data distinguishing "slur as
+personal insult" from "slur as targeted hate," beyond this project's scope.
+
+Full misclassified set: `results/misclassified_examples_full.csv`.
+LIME explanations: `results/lime_explanations.json`.
+
 **Deployment decision:** given the image branch does not add measurable value
 on this dataset, the deployed app extracts text from uploaded images via OCR
 and classifies that text with the text-only DistilBERT model, rather than
@@ -133,7 +169,7 @@ comparison above stays in the repo as documented evidence for why.
 - [x] Multimodal dataset inspected
 - [x] Image + fusion branch
 - [x] Multimodal bias audit
-- [ ] Qualitative error analysis (10-15 misclassified examples, categorized)
+- [x] Qualitative error analysis (10-15 misclassified examples, categorized)
 - [ ] LIME explainability (text predictions)
 - [ ] Grad-CAM visualizations (image predictions)
 - [ ] FastAPI backend

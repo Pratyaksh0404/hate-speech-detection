@@ -1,0 +1,197 @@
+[
+  {
+    "text": "RT @Buckm00se: @Eric_Mariners @_WhitePonyJr_ @JC_1221 this faggot is a lil attention whore fuck him #mute",
+    "true_label": "Offensive Language",
+    "pred_label": "Hate Speech",
+    "word_weights": [
+      [
+        "faggot",
+        0.5563562274249261
+      ],
+      [
+        "is",
+        0.0302605614345282
+      ],
+      [
+        "lil",
+        -0.028756587659847607
+      ],
+      [
+        "_WhitePonyJr_",
+        -0.01801663761310809
+      ],
+      [
+        "fuck",
+        0.015721304467302816
+      ],
+      [
+        "Eric_Mariners",
+        -0.015468436641126557
+      ],
+      [
+        "this",
+        0.013032408507799671
+      ],
+      [
+        "whore",
+        0.009755356875872756
+      ]
+    ]
+  },
+  {
+    "text": "We bout to be the next Chik Fil A, lmao. Couple of fags said we told them if they didn't like their food to get out.\nNever happened &#128514;&#128514;&#128514;&#128514;",
+    "true_label": "Offensive Language",
+    "pred_label": "Hate Speech",
+    "word_weights": [
+      [
+        "fags",
+        0.837990319819833
+      ],
+      [
+        "said",
+        0.009673782134251989
+      ],
+      [
+        "bout",
+        -0.006054918685208564
+      ],
+      [
+        "128514",
+        0.004564517321158033
+      ],
+      [
+        "didn",
+        0.004094827879267632
+      ],
+      [
+        "Fil",
+        -0.0030163967245513314
+      ],
+      [
+        "food",
+        -0.0028700921199442666
+      ],
+      [
+        "A",
+        -0.002727051180443953
+      ]
+    ]
+  },
+  {
+    "text": "@TreyDoe_: @HallDerik @20ToLife_ once fag.\" You got pressed to the ground? ..hang up your cleats n never put them back on or think about it",
+    "true_label": "Neither",
+    "pred_label": "Hate Speech",
+    "word_weights": [
+      [
+        "fag",
+        0.7522428243503875
+      ],
+      [
+        "20ToLife_",
+        0.027831112702420287
+      ],
+      [
+        "once",
+        0.025092766510513287
+      ],
+      [
+        "TreyDoe_",
+        0.008670864764978631
+      ],
+      [
+        "about",
+        -0.007540292178799303
+      ],
+      [
+        "HallDerik",
+        0.0062921725495338416
+      ],
+      [
+        "pressed",
+        -0.005034471971389647
+      ],
+      [
+        "cleats",
+        -0.0029687964039275616
+      ]
+    ]
+  },
+  {
+    "text": "@red_daddy17 @lilJohn_Fnv9 and dis wus after i offered to help faggot ass nigga get custody of his kids.... Im lowkey heated..",
+    "true_label": "Offensive Language",
+    "pred_label": "Hate Speech",
+    "word_weights": [
+      [
+        "faggot",
+        0.4156888250597352
+      ],
+      [
+        "nigga",
+        -0.052408077726676126
+      ],
+      [
+        "ass",
+        0.030548761385391806
+      ],
+      [
+        "Im",
+        0.0286833604506102
+      ],
+      [
+        "red_daddy17",
+        -0.02739048346730973
+      ],
+      [
+        "get",
+        -0.019940688157137856
+      ],
+      [
+        "his",
+        -0.018143842908770743
+      ],
+      [
+        "of",
+        0.012373359168663337
+      ]
+    ]
+  },
+  {
+    "text": "This faggot in a truck was tailgating me, so I hit my breaks, he cut me off I switched lanes he cuts me off again to be a little biatch then",
+    "true_label": "Offensive Language",
+    "pred_label": "Hate Speech",
+    "word_weights": [
+      [
+        "faggot",
+        0.7741714259338133
+      ],
+      [
+        "This",
+        0.010632406085321415
+      ],
+      [
+        "off",
+        0.005970354285256679
+      ],
+      [
+        "little",
+        -0.005902335756945168
+      ],
+      [
+        "tailgating",
+        0.005026640929567288
+      ],
+      [
+        "breaks",
+        -0.0034506872777494454
+      ],
+      [
+        "he",
+        -0.0019266909693957843
+      ],
+      [
+        "then",
+        -0.0010081106059445645
+      ]
+    ]
+  }
+]
