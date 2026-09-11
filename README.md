@@ -117,6 +117,10 @@ automatically indicate targeted bias.
 
 DistilBERT misclassified 375/3718 test examples (10.1%). Sample of 15 examined
 directly, plus LIME explanations on 5, reveal a consistent pattern:
+(For context: 10.1% error rate is exactly consistent with DistilBERT's already-reported
+89.94% test accuracy — this is the same result restated as a raw count, not a new or
+worse finding. The "15 examples" below is a manually-reviewed qualitative sample, not
+a claim that only 15 total errors exist.)
 
 **The model's decisions are driven heavily by the presence of specific lexical
 triggers (particular slurs), not deeper contextual understanding of intent or
