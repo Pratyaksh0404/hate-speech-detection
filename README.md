@@ -153,6 +153,39 @@ personal insult" from "slur as targeted hate," beyond this project's scope.
 Full misclassified set: `results/misclassified_examples_full.csv`.
 LIME explanations: `results/lime_explanations.json`.
 
+## Grad-CAM: Image Model Explainability (Required)
+
+Visualized which regions of 6 test images the image-only model's CNN attended to.
+
+| Image | True | Pred | Confidence |
+|---|---|---|---|
+| Kim Davis screenshot | Non-offensive | Non-offensive | 0.54 |
+| "Clinton supporter" meme | Offensive | Offensive | 0.65 |
+| "Hip hop career" text meme | Non-offensive | **Offensive (wrong)** | 0.53 |
+| "Before Hillary" (Jill Stein) | Non-offensive | Non-offensive | 0.72 |
+| "Democrat Party hate group" text | Offensive | Offensive | 0.68 |
+| Pornhub screenshot | Offensive | **Non-offensive (wrong)** | 0.79 |
+
+**Key finding**: for text-heavy memes, the model's attention concentrates heavily
+on the text block itself — visually looking like it's "reading" the content. It
+isn't and structurally can't be: ResNet18 has no OCR capability. What it's
+actually detecting is generic visual texture (text-dense regions have a
+distinctive pixel pattern), not semantic meaning. This is a concrete, visual
+explanation for why the image-only branch performs near chance (0.51 macro-F1)
+despite producing focused-looking heatmaps — the attention is real, but the
+signal it's keying on (how much dense text an image contains) is a weak proxy
+for actual offensiveness. This directly reinforces the earlier decision to route
+image inputs through OCR + text-only DistilBERT in the deployed app rather than
+the vision branch: this is now visual evidence for that decision, not just the
+macro-F1 comparison alone.
+
+On the two images containing a clear human face (a shouting-expression photo, a
+politician's portrait), attention concentrates on the face/person specifically —
+a more plausible case of genuine visual signal, distinct from the text-block
+pattern-matching seen elsewhere.
+
+![Grad-CAM examples](../results/grad_cam_examples.png)
+
 **Deployment decision:** given the image branch does not add measurable value
 on this dataset, the deployed app extracts text from uploaded images via OCR
 and classifies that text with the text-only DistilBERT model, rather than
@@ -174,8 +207,8 @@ comparison above stays in the repo as documented evidence for why.
 - [x] Image + fusion branch
 - [x] Multimodal bias audit
 - [x] Qualitative error analysis (10-15 misclassified examples, categorized)
-- [ ] LIME explainability (text predictions)
-- [ ] Grad-CAM visualizations (image predictions)
+- [x] LIME explainability (text predictions)
+- [x] Grad-CAM visualizations (image predictions)
 - [ ] FastAPI backend
 - [ ] Frontend
 - [ ] CI + deployment
