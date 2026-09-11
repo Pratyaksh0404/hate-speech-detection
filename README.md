@@ -184,7 +184,7 @@ politician's portrait), attention concentrates on the face/person specifically â
 a more plausible case of genuine visual signal, distinct from the text-block
 pattern-matching seen elsewhere.
 
-![Grad-CAM examples](../results/grad_cam_examples.png)
+![Grad-CAM examples](results/grad_cam_examples.png)
 
 **Deployment decision:** given the image branch does not add measurable value
 on this dataset, the deployed app extracts text from uploaded images via OCR
