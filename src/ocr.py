@@ -31,19 +31,64 @@ Design decisions:
    neither source alone is fully reliable, so we give the model both and
    let it learn which is informative per example, falling back to
    whichever single source is non-empty if the other found nothing.
+5. Auto-detects the Tesseract-OCR binary on Windows. Installing the
+   pytesseract PIP package only installs the Python wrapper -- the actual
+   OCR engine is a separate native program that needs its own installer
+   (https://github.com/UB-Mannheim/tesseract/wiki on Windows), and that
+   installer does not add it to PATH by default. Rather than requiring
+   manual PATH edits, this checks the standard install locations and
+   points pytesseract directly at the binary if found. No-op on Linux/Mac,
+   where the binary is normally already on PATH.
+
+6. TesseractNotFoundError is NOT swallowed by the broad except below --
+   it's a genuine configuration/installation problem, not "this image has
+   no text," and silently treating it as the latter would make a real
+   setup bug indistinguishable from a normal empty result (exactly what
+   happened before this was separated out: see chat).
 """
+
+import os
 
 import pytesseract
 from PIL import Image
 
 
-def extract_text_from_image(image_path: str, min_upscale_width: int = 800) -> str:
+def _configure_tesseract_binary() -> None:
+    if pytesseract.pytesseract.tesseract_cmd != "tesseract":
+        return  # already explicitly configured elsewhere -- don't override
+    candidate_paths = [
+        r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+        r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    ]
+    for path in candidate_paths:
+        if os.path.exists(path):
+            pytesseract.pytesseract.tesseract_cmd = path
+            return
+
+
+_configure_tesseract_binary()
+
+
+def extract_text_from_image(image, min_upscale_width: int = 800) -> str:
     """
     Runs OCR on a single image, returning "" (never None, never a crash)
-    if no text is found or the file can't be read.
+    if no text is found or the image can't be read.
+
+    `image` can be either a file path (str) or an already-loaded
+    PIL.Image.Image. Accepting both matters in practice: the FastAPI
+    /predict/image endpoint already has the uploaded image in memory, and
+    round-tripping it through a temp file just to satisfy a path-only
+    function is unnecessary overhead -- and on Windows specifically,
+    tempfile.NamedTemporaryFile's exclusive file lock means a second
+    open() on that same path (e.g. from PIL) raises PermissionError,
+    which is exactly what happened before this function accepted images
+    directly (see chat).
     """
     try:
-        img = Image.open(image_path).convert("L")  # grayscale
+        if isinstance(image, str):
+            img = Image.open(image).convert("L")  # grayscale
+        else:
+            img = image.convert("L")
     except Exception:
         return ""
 
@@ -54,6 +99,8 @@ def extract_text_from_image(image_path: str, min_upscale_width: int = 800) -> st
 
     try:
         text = pytesseract.image_to_string(img)
+    except pytesseract.TesseractNotFoundError:
+        raise  # genuine setup/config error -- must NOT look like "no text found"
     except Exception:
         return ""
 
