@@ -45,12 +45,29 @@ Design decisions:
    no text," and silently treating it as the latter would make a real
    setup bug indistinguishable from a normal empty result (exactly what
    happened before this was separated out: see chat).
+7. Tries THREE preprocessing variants (plain grayscale, inverted, and
+   brightness-thresholded/binarized) and keeps whichever extracts the
+   most text. This was added after testing the deployed API on real
+   memes: classic internet memes overlay bold white text on busy/dark
+   photographic backgrounds, and plain grayscale OCR frequently extracts
+   NOTHING in that case (verified directly by reproducing the failure:
+   a synthetic busy-background image with white text returned empty
+   output from plain grayscale OCR, but the SAME image thresholded at
+   brightness>200 extracted the text perfectly). Tesseract is tuned for
+   dark text on a plain light background -- the classic meme format is
+   close to the opposite of that. This roughly triples OCR latency per
+   image, a deliberate accuracy-for-latency tradeoff given how badly
+   plain grayscale can fail on this exact, common case. Note this is a
+   simple, effective heuristic (a fixed brightness threshold), not a
+   fully robust solution (e.g. adaptive/Otsu thresholding would handle
+   more lighting conditions) -- a reasonable scope boundary, not a claim
+   this fixes every meme format.
 """
 
 import os
 
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 def _configure_tesseract_binary() -> None:
@@ -97,14 +114,27 @@ def extract_text_from_image(image, min_upscale_width: int = 800) -> str:
         new_size = (int(img.width * scale), int(img.height * scale))
         img = img.resize(new_size, Image.LANCZOS)
 
-    try:
-        text = pytesseract.image_to_string(img)
-    except pytesseract.TesseractNotFoundError:
-        raise  # genuine setup/config error -- must NOT look like "no text found"
-    except Exception:
-        return ""
+    # Try multiple preprocessing variants and keep whichever extracts the
+    # most text -- see design decision 7 above for why plain grayscale
+    # alone isn't reliable on classic meme-style images.
+    variants = [
+        img,
+        ImageOps.invert(img),
+        img.point(lambda p: 255 if p > 200 else 0),  # brightness threshold
+    ]
 
-    return text.strip()
+    best_text = ""
+    for variant in variants:
+        try:
+            candidate = pytesseract.image_to_string(variant).strip()
+        except pytesseract.TesseractNotFoundError:
+            raise  # genuine setup/config error -- must NOT look like "no text found"
+        except Exception:
+            candidate = ""
+        if len(candidate) > len(best_text):
+            best_text = candidate
+
+    return best_text
 
 
 def combine_ocr_and_caption(ocr_text: str, caption: str) -> str:

@@ -186,12 +186,32 @@ pattern-matching seen elsewhere.
 
 ![Grad-CAM examples](results/grad_cam_examples.png)
 
-**Deployment decision:** given the image branch does not add measurable value
-on this dataset, the deployed app extracts text from uploaded images via OCR
-and classifies that text with the text-only DistilBERT model, rather than
-routing through the weaker multimodal fusion branch. This is a
-data-driven engineering decision, not a limitation being hidden — the full
-comparison above stays in the repo as documented evidence for why.
+## Live API Testing (Post-Deployment)
+
+Testing the deployed API with real memes and hand-written text surfaced both a
+real fix and a broader finding than offline error analysis alone caught.
+
+**OCR fix (partial success, disclosed honestly):** the multi-variant OCR
+approach successfully recovered previously-missed meme text on one real image
+("YOU MEAN GAY LEMONADE?" overlay, previously invisible to OCR entirely) — but
+failed to fully recover text on a second, more visually complex real image
+(garbled "MUSLIM STUDENT" into "UR CLASS" against a busy fire-photo background).
+The fix is a genuine, verified improvement, not a complete solution — OCR on
+visually complex real memes remains a real limitation.
+
+**New finding: over-escalation to "Hate Speech" is broader than slur tokens.**
+Offline error analysis found slur presence triggers this. Live testing found
+plain insults with no slur or group targeting do too: `"shut up you absolute
+idiot"` classified as Hate Speech (72.5% confidence) with no offensive/targeted
+language present at all. This suggests the model's Hate-Speech trigger responds
+to strong negative sentiment generally, not only specific slur vocabulary — a
+broader version of the limitation than previously documented.
+
+**Positive finding: appropriate uncertainty on ambiguous inputs.** Genuinely
+unclear cases ("kill it with fire," "you people are the worst") produced low
+confidence (44-66%) rather than confident wrong answers — the model hedges
+appropriately rather than overclaiming certainty on hard cases.
+
 
 ## Progress log
 
