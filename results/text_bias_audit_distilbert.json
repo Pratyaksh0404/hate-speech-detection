@@ -1,4 +1,5 @@
 {
+  "model": "distilbert",
   "n_pairs": 20,
   "aave_false_positive_rate": 0.0,
   "sae_false_positive_rate": 0.0,

@@ -44,8 +44,9 @@ def set_seed(seed: int = RANDOM_STATE) -> None:
     torch.cuda.manual_seed_all(seed)
 
 
-def load_splits(data_dir: str = "data/text"):
-    train = pd.read_csv(f"{data_dir}/train.csv")
+def load_splits(data_dir: str = "data/text", train_csv: str = None):
+    train_path = train_csv or f"{data_dir}/train.csv"
+    train = pd.read_csv(train_path)
     val = pd.read_csv(f"{data_dir}/val.csv")
     test = pd.read_csv(f"{data_dir}/test.csv")
     for df in (train, val, test):
@@ -160,13 +161,16 @@ def main():
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--max_length", type=int, default=128)
     parser.add_argument("--patience", type=int, default=2)
+    parser.add_argument("--train_csv", default=None, help="override path to train CSV, e.g. data/text/train_augmented.csv")
+    parser.add_argument("--class_weights_path", default="data/text/class_weights.json")
+    parser.add_argument("--model_name", default="distilbert", help="name used for checkpoint/results files -- use a distinct name (e.g. distilbert_augmented) to avoid overwriting the original")
     args, _unknown_args = parser.parse_known_args()
 
     set_seed()
     print(f"device: {DEVICE}")
 
-    train, val, test = load_splits()
-    class_weights = load_class_weights()
+    train, val, test = load_splits(train_csv=args.train_csv)
+    class_weights = load_class_weights(args.class_weights_path)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     collator = DataCollatorWithPadding(tokenizer=tokenizer)
@@ -183,7 +187,7 @@ def main():
 
     model, history = train_model(
         model, train_loader, val_loader, class_weights,
-        name="distilbert", n_epochs=args.n_epochs, lr=args.lr, patience=args.patience,
+        name=args.model_name, n_epochs=args.n_epochs, lr=args.lr, patience=args.patience,
     )
     test_metrics = evaluate_on_test(model, test_loader)
 
@@ -203,13 +207,14 @@ def main():
         "latency_ms_per_sample": latency_ms,
         "device_used_for_training": str(DEVICE),
         "pretrained_checkpoint": MODEL_NAME,
+        "train_csv_used": args.train_csv or "data/text/train.csv",
     }
-    results_path = save_results(results, "distilbert")
+    results_path = save_results(results, args.model_name)
 
-    print("\n=== distilbert FINAL ===")
+    print(f"\n=== {args.model_name} FINAL ===")
     print(f"test macro-F1: {test_metrics['macro_f1']:.4f} | test accuracy: {test_metrics['accuracy']:.4f}")
     print(f"latency: {latency_ms:.3f} ms/sample")
-    print("model saved: models/distilbert.pt")
+    print(f"model saved: models/{args.model_name}.pt")
     print(f"results saved: {results_path}")
 
 

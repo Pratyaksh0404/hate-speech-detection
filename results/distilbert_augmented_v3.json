@@ -1,0 +1,101 @@
+{
+  "model_name": "distilbert_augmented_v3",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.542823878897272,
+      "val_loss": 0.4482728725578786,
+      "val_macro_f1": 0.7030879566983251
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.3665685027784988,
+      "val_loss": 0.45397308306901796,
+      "val_macro_f1": 0.7331744995472681
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.28293865828901094,
+      "val_loss": 0.5186483148142752,
+      "val_macro_f1": 0.7407255717484572
+    },
+    {
+      "epoch": 4,
+      "train_loss": 0.20440418293082713,
+      "val_loss": 0.5086680847255692,
+      "val_macro_f1": 0.727446759574445
+    },
+    {
+      "epoch": 5,
+      "train_loss": 0.14577800222677362,
+      "val_loss": 0.7421886052910265,
+      "val_macro_f1": 0.7393717212650895
+    },
+    {
+      "epoch": 6,
+      "train_loss": 0.11406584069268123,
+      "val_loss": 0.7156097519703934,
+      "val_macro_f1": 0.7336224322070818
+    }
+  ],
+  "test_metrics": {
+    "accuracy": 0.8784292630446476,
+    "macro_f1": 0.7504035229783704,
+    "macro_precision": 0.713084669471149,
+    "macro_recall": 0.8180829523923913,
+    "confusion_matrix": [
+      [
+        136,
+        55,
+        23
+      ],
+      [
+        217,
+        2546,
+        116
+      ],
+      [
+        27,
+        14,
+        584
+      ]
+    ],
+    "classification_report": {
+      "Hate Speech": {
+        "precision": 0.35789473684210527,
+        "recall": 0.6355140186915887,
+        "f1-score": 0.45791245791245794,
+        "support": 214.0
+      },
+      "Offensive Language": {
+        "precision": 0.9736137667304016,
+        "recall": 0.8843348384855853,
+        "f1-score": 0.926829268292683,
+        "support": 2879.0
+      },
+      "Neither": {
+        "precision": 0.8077455048409405,
+        "recall": 0.9344,
+        "f1-score": 0.8664688427299704,
+        "support": 625.0
+      },
+      "accuracy": 0.8784292630446476,
+      "macro avg": {
+        "precision": 0.713084669471149,
+        "recall": 0.8180829523923913,
+        "f1-score": 0.7504035229783704,
+        "support": 3718.0
+      },
+      "weighted avg": {
+        "precision": 0.9102916752626747,
+        "recall": 0.8784292630446476,
+        "f1-score": 0.8896927800199387,
+        "support": 3718.0
+      }
+    }
+  },
+  "latency_ms_per_sample": 5.169082479997087,
+  "device_used_for_training": "cuda",
+  "pretrained_checkpoint": "distilbert-base-uncased",
+  "train_csv_used": "data/text/train_augmented.csv"
+}

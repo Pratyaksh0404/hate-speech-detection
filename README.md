@@ -212,6 +212,45 @@ unclear cases ("kill it with fire," "you people are the worst") produced low
 confidence (44-66%) rather than confident wrong answers — the model hedges
 appropriately rather than overclaiming certainty on hard cases.
 
+## Counterfactual Data Augmentation: Fixing What Live Testing Found
+
+Live API testing (previous section) surfaced two real problems beyond what offline
+error analysis alone caught. Rather than just document them as limitations, we
+fixed them using Counterfactual Data Augmentation (Dixon et al., 2018) — adding
+114 targeted, hand-labeled examples (severity-graded personal insults, genuine
+group-targeted hate, and benign identity-term sentences) to the training data,
+with severity examples oversampled 3x after an unoversampled first attempt showed
+no measurable effect.
+
+**Held-out evaluation (new phrasings, not seen in training) confirms real,
+generalized fixes:**
+
+| Metric | Before | After |
+|---|---|---|
+| test macro-F1 | 0.7663 | 0.7504 |
+| Severity monotonicity (held-out) | 1/6 correct | **5/6 correct** |
+| "queer" identity-term gap | −60.2pp | **−6.3pp** |
+| Identity-term spread (best↔worst) | 73.4pp | **18.6pp** |
+| AAVE dialect bias regression check | 0% gap | **0% gap (confirmed no regression)** |
+
+**The macro-F1 cost (−1.6 points) is real and disclosed, not hidden** — a
+deliberate trade-off, not an oversight. The augmented model remains competitive
+as the #2 model across our entire 7-model comparison (tied with CNN-BiLSTM),
+just no longer the outright #1.
+
+**A 2x-oversampling variant was tested and explicitly rejected**, despite a
+*higher* macro-F1 (0.7769): it only partially fixed identity calibration
+("queer" still at −45.4pp) and reintroduced a real AAVE false positive
+("Ain't nobody got time for that" → wrongly flagged Offensive). Chasing the
+better benchmark number there would have meant shipping a worse model on the
+property that actually mattered — recorded here explicitly so that trade-off
+stays visible.
+
+**This is the model now deployed** at
+[huggingface.co/Prat-04/hate-speech-distilbert](https://huggingface.co/Prat-04/hate-speech-distilbert),
+replacing the pre-augmentation version. Full model card includes all of the
+above.
+
 
 ## Progress log
 

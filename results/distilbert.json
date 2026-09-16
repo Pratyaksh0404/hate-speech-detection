@@ -76,7 +76,7 @@
       }
     }
   },
-  "latency_ms_per_sample": 5.587682299999415,
+  "latency_ms_per_sample": 5.093771009999273,
   "device_used_for_training": "cuda",
   "pretrained_checkpoint": "distilbert-base-uncased"
 }

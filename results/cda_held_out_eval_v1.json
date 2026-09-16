@@ -1,0 +1,106 @@
+{
+  "ORIGINAL": {
+    "severity": [
+      {
+        "text": "you're a bit clueless sometimes",
+        "pred": "Neither",
+        "hate_speech_prob": 0.039922744035720825
+      },
+      {
+        "text": "you're kind of a jerk",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.15231503546237946
+      },
+      {
+        "text": "you're an absolute fool",
+        "pred": "Neither",
+        "hate_speech_prob": 0.06165896728634834
+      },
+      {
+        "text": "you're utterly repulsive as a person",
+        "pred": "Neither",
+        "hate_speech_prob": 0.044446177780628204
+      },
+      {
+        "text": "you're the worst human being alive",
+        "pred": "Neither",
+        "hate_speech_prob": 0.04039895534515381
+      },
+      {
+        "text": "I despise every single thing about you",
+        "pred": "Neither",
+        "hate_speech_prob": 0.03467223793268204
+      }
+    ],
+    "identity": {
+      "gay": 0.691593536734581,
+      "white": 0.6949859529733657,
+      "black": 0.8187702834606171,
+      "muslim": 0.8613928377628326,
+      "jewish": 0.9019991278648376,
+      "christian": 0.923034381866455,
+      "trans": 0.8604787230491638,
+      "disabled": 0.8803400039672852,
+      "mexican": 0.9107367992401123,
+      "asian": 0.8899914026260376,
+      "latino": 0.8708431482315063,
+      "queer": 0.18930219635367393
+    },
+    "aave_regression": {
+      "aave_fp_rate": 0.0,
+      "sae_fp_rate": 0.0
+    }
+  },
+  "AUGMENTED": {
+    "severity": [
+      {
+        "text": "you're a bit clueless sometimes",
+        "pred": "Neither",
+        "hate_speech_prob": 0.14436529576778412
+      },
+      {
+        "text": "you're kind of a jerk",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.2390180230140686
+      },
+      {
+        "text": "you're an absolute fool",
+        "pred": "Neither",
+        "hate_speech_prob": 0.2370774894952774
+      },
+      {
+        "text": "you're utterly repulsive as a person",
+        "pred": "Neither",
+        "hate_speech_prob": 0.1241738498210907
+      },
+      {
+        "text": "you're the worst human being alive",
+        "pred": "Neither",
+        "hate_speech_prob": 0.2707533538341522
+      },
+      {
+        "text": "I despise every single thing about you",
+        "pred": "Neither",
+        "hate_speech_prob": 0.05532702058553696
+      }
+    ],
+    "identity": {
+      "gay": 0.8138599544763565,
+      "white": 0.7443799465894699,
+      "black": 0.8159129112958908,
+      "muslim": 0.8305289447307587,
+      "jewish": 0.8459380984306335,
+      "christian": 0.8905434846878052,
+      "trans": 0.8327287435531616,
+      "disabled": 0.8706663250923157,
+      "mexican": 0.8425983488559723,
+      "asian": 0.8355867773294449,
+      "latino": 0.826845771074295,
+      "queer": 0.7572182416915894
+    },
+    "aave_regression": {
+      "aave_fp_rate": 0.05,
+      "sae_fp_rate": 0.0
+    }
+  }
+}

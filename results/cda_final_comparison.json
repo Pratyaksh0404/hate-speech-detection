@@ -1,0 +1,167 @@
+{
+  "ORIGINAL": {
+    "severity": [
+      {
+        "text": "you're a bit clueless sometimes",
+        "pred": "Neither",
+        "hate_speech_prob": 0.039922744035720825
+      },
+      {
+        "text": "you're kind of a jerk",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.15231503546237946
+      },
+      {
+        "text": "you're an absolute fool",
+        "pred": "Neither",
+        "hate_speech_prob": 0.06165896728634834
+      },
+      {
+        "text": "you're utterly repulsive as a person",
+        "pred": "Neither",
+        "hate_speech_prob": 0.044446177780628204
+      },
+      {
+        "text": "you're the worst human being alive",
+        "pred": "Neither",
+        "hate_speech_prob": 0.04039895534515381
+      },
+      {
+        "text": "I despise every single thing about you",
+        "pred": "Neither",
+        "hate_speech_prob": 0.03467223793268204
+      }
+    ],
+    "identity": {
+      "gay": 0.691593536734581,
+      "white": 0.6949859529733657,
+      "black": 0.8187702834606171,
+      "muslim": 0.8613928377628326,
+      "jewish": 0.9019991278648376,
+      "christian": 0.923034381866455,
+      "trans": 0.8604787230491638,
+      "disabled": 0.8803400039672852,
+      "mexican": 0.9107367992401123,
+      "asian": 0.8899914026260376,
+      "latino": 0.8708431482315063,
+      "queer": 0.18930219635367393
+    },
+    "aave_regression": {
+      "aave_fp_rate": 0.0,
+      "sae_fp_rate": 0.0,
+      "flipped_pairs": []
+    }
+  },
+  "AUGMENTED_3X": {
+    "severity": [
+      {
+        "text": "you're a bit clueless sometimes",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.01950974389910698
+      },
+      {
+        "text": "you're kind of a jerk",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.03849893808364868
+      },
+      {
+        "text": "you're an absolute fool",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.014957932755351067
+      },
+      {
+        "text": "you're utterly repulsive as a person",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.029021650552749634
+      },
+      {
+        "text": "you're the worst human being alive",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.04990702122449875
+      },
+      {
+        "text": "I despise every single thing about you",
+        "pred": "Neither",
+        "hate_speech_prob": 0.00879098754376173
+      }
+    ],
+    "identity": {
+      "gay": 0.8282594889402389,
+      "white": 0.7973966289311647,
+      "black": 0.8027976177632808,
+      "muslim": 0.8477061510086059,
+      "jewish": 0.8891500353813171,
+      "christian": 0.9782399535179138,
+      "trans": 0.8445102751255036,
+      "disabled": 0.831010514497757,
+      "mexican": 0.9288670659065247,
+      "asian": 0.8473779141902924,
+      "latino": 0.8710661590099334,
+      "queer": 0.7915041012689471
+    },
+    "aave_regression": {
+      "aave_fp_rate": 0.0,
+      "sae_fp_rate": 0.0,
+      "flipped_pairs": []
+    }
+  },
+  "AUGMENTED_2X": {
+    "severity": [
+      {
+        "text": "you're a bit clueless sometimes",
+        "pred": "Neither",
+        "hate_speech_prob": 0.0903024971485138
+      },
+      {
+        "text": "you're kind of a jerk",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.09490563720464706
+      },
+      {
+        "text": "you're an absolute fool",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.1020578145980835
+      },
+      {
+        "text": "you're utterly repulsive as a person",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.10928705334663391
+      },
+      {
+        "text": "you're the worst human being alive",
+        "pred": "Neither",
+        "hate_speech_prob": 0.1521226018667221
+      },
+      {
+        "text": "I despise every single thing about you",
+        "pred": "Offensive Language",
+        "hate_speech_prob": 0.06674788147211075
+      }
+    ],
+    "identity": {
+      "gay": 0.7593874610960484,
+      "white": 0.7181860867887735,
+      "black": 0.8003719203174114,
+      "muslim": 0.8284272193908692,
+      "jewish": 0.8206649243831634,
+      "christian": 0.879634553194046,
+      "trans": 0.8189823120832443,
+      "disabled": 0.8381634384393692,
+      "mexican": 0.8432923197746277,
+      "asian": 0.8349166423082351,
+      "latino": 0.8064212217926979,
+      "queer": 0.3177410658448935
+    },
+    "aave_regression": {
+      "aave_fp_rate": 0.05,
+      "sae_fp_rate": 0.0,
+      "flipped_pairs": [
+        {
+          "text": "Ain't nobody got time for that",
+          "pred": "Offensive Language",
+          "side": "AAVE"
+        }
+      ]
+    }
+  }
+}

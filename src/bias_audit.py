@@ -42,8 +42,6 @@ import joblib
 import torch
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from src.preprocessing import clean_text
-
 MODEL_NAME = "distilbert-base-uncased"
 DISTILBERT_CHECKPOINT_PATH = "models/distilbert.pt"
 BASELINE_CHECKPOINT_PATH = "models/baseline_logreg.joblib"
@@ -101,6 +99,11 @@ def load_baseline():
 
 
 def predict_baseline(text: str, pipeline) -> str:
+    # imported here, not at module top, so importing AAVE_SAE_PAIRS from
+    # this module doesn't require src.preprocessing (and its nltk/emoji
+    # dependencies) to exist -- only actually calling this function does
+    from src.preprocessing import clean_text
+
     # baseline was trained on clean_text() output, not raw text -- must
     # apply the identical preprocessing here or predictions are meaningless
     cleaned = clean_text(text)

@@ -1,0 +1,83 @@
+{
+  "model_name": "distilbert_augmented",
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 0.5397430985008264,
+      "val_loss": 0.4556593238954713,
+      "val_macro_f1": 0.7549745374940219
+    },
+    {
+      "epoch": 2,
+      "train_loss": 0.3740371327365066,
+      "val_loss": 0.48177997345498585,
+      "val_macro_f1": 0.7692674040769122
+    },
+    {
+      "epoch": 3,
+      "train_loss": 0.28367711565562564,
+      "val_loss": 0.44968298795788825,
+      "val_macro_f1": 0.7285928036452146
+    }
+  ],
+  "test_metrics": {
+    "accuracy": 0.9117805271651426,
+    "macro_f1": 0.7784198238632428,
+    "macro_precision": 0.7633535049353095,
+    "macro_recall": 0.7953692037841974,
+    "confusion_matrix": [
+      [
+        110,
+        86,
+        18
+      ],
+      [
+        109,
+        2695,
+        75
+      ],
+      [
+        17,
+        23,
+        585
+      ]
+    ],
+    "classification_report": {
+      "Hate Speech": {
+        "precision": 0.4661016949152542,
+        "recall": 0.514018691588785,
+        "f1-score": 0.4888888888888889,
+        "support": 214.0
+      },
+      "Offensive Language": {
+        "precision": 0.9611269614835949,
+        "recall": 0.9360889197638069,
+        "f1-score": 0.948442723913426,
+        "support": 2879.0
+      },
+      "Neither": {
+        "precision": 0.8628318584070797,
+        "recall": 0.936,
+        "f1-score": 0.8979278587874137,
+        "support": 625.0
+      },
+      "accuracy": 0.9117805271651426,
+      "macro avg": {
+        "precision": 0.7633535049353095,
+        "recall": 0.7953692037841974,
+        "f1-score": 0.7784198238632428,
+        "support": 3718.0
+      },
+      "weighted avg": {
+        "precision": 0.9161108650692734,
+        "recall": 0.9117805271651426,
+        "f1-score": 0.9135001979857743,
+        "support": 3718.0
+      }
+    }
+  },
+  "latency_ms_per_sample": 5.314955099998997,
+  "device_used_for_training": "cuda",
+  "pretrained_checkpoint": "distilbert-base-uncased",
+  "train_csv_used": "data/text/train_augmented.csv"
+}
