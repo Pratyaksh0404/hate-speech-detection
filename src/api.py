@@ -16,40 +16,39 @@ Design decisions:
    OCR + the strong text model is the one that's actually good.
 
 2. image_saliency_note is a static, informative string explaining this
-   decision (with a pointer to the repo's Grad-CAM analysis) rather than
-   live per-request Grad-CAM computation -- the image-only model's signal
-   is weak enough that running it live would add latency and a second
-   model to serve for no prediction-quality benefit. Disclosed openly in
-   the response itself, not hidden.
+   decision (with a pointer to the repo's Grad-CAM analysis). Disclosed
+   openly in the response itself, not hidden.
 
 3. Both the tokenizer and model are loaded ONCE at module import time, not
-   per-request -- standard practice for serving latency; re-loading a
-   transformer on every request would make the API unusably slow.
+   per-request -- standard practice for serving latency.
 
 4. top_contributing_tokens uses LIME -- the same method used throughout
-   this project's offline error analysis, kept consistent rather than
-   introducing a different explainability method just for the live API --
-   with a reduced num_samples (100, vs. 500 used offline) to keep
-   single-request latency reasonable.
+   this project's offline error analysis -- with a reduced num_samples
+   (100, vs. 500 used offline) to keep single-request latency reasonable.
 
 5. Raw text (not clean_text()) is fed directly to DistilBERT's tokenizer,
-   matching exactly how the model was trained (see src/bert_dataset.py) --
-   using different preprocessing at serve time than train time would
-   silently degrade predictions.
+   matching exactly how the model was trained (see src/bert_dataset.py).
 """
 
+import base64
 import io
 
+import numpy as np
 import torch
+import torch.nn.functional as TF
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from huggingface_hub import hf_hub_download
 from lime.lime_text import LimeTextExplainer
 from PIL import Image
 from pydantic import BaseModel
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
+from src.image_dataset import IMAGENET_MEAN, IMAGENET_STD, build_image_transform
+from src.models.multimodal_models import ImageOnlyClassifier
 from src.ocr import combine_ocr_and_caption, extract_text_from_image
 
 MODEL_REPO = "Prat-04/hate-speech-distilbert"
+IMAGE_MODEL_REPO = "Prat-04/hate-speech-image-only"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABEL_NAMES = ["Hate Speech", "Offensive Language", "Neither"]
 
@@ -62,7 +61,14 @@ IMAGE_SALIENCY_NOTE = (
     "showed its attention mostly reflects generic text-density texture patterns "
     "rather than genuine visual understanding of hateful content. Serving that "
     "weaker model here would not improve predictions, so this endpoint uses "
-    "OCR + the strongest available text model instead."
+    "OCR + the strongest available text model instead. The Grad-CAM overlay "
+    "below is shown for transparency about what the vision model focuses on -- "
+    "it does NOT influence the classification above."
+)
+
+IMAGES_NOT_STORED_NOTE = (
+    "Uploaded images are processed in memory for this single request only and "
+    "are never saved to disk or logged."
 )
 
 DISCLAIMER = (
@@ -79,14 +85,111 @@ app = FastAPI(
     version="1.0.0",
 )
 
-print("loading model from Hugging Face Hub...")
+print("loading text model from Hugging Face Hub...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_REPO)
 model.to(DEVICE)
 model.eval()
-print("model loaded.")
+print("text model loaded.")
 
 _lime_explainer = LimeTextExplainer(class_names=LABEL_NAMES)
+
+print("loading image-only model (Grad-CAM diagnostic only) from Hugging Face Hub...")
+_image_checkpoint_path = hf_hub_download(repo_id=IMAGE_MODEL_REPO, filename="image_only_resnet18.pt")
+image_model = ImageOnlyClassifier(n_classes=2)
+image_model.load_state_dict(torch.load(_image_checkpoint_path, map_location=DEVICE))
+image_model.to(DEVICE)
+image_model.eval()
+_image_transform = build_image_transform(train=False)
+print("image-only model loaded.")
+
+
+class _LiveGradCAM:
+    """
+    Same Grad-CAM math as src/grad_cam.py (offline analysis), adapted for a
+    single live request instead of batch analysis of saved test images.
+    DIAGNOSTIC ONLY -- never used to produce the actual classification.
+    """
+
+    def __init__(self, target_model, target_layer):
+        self.model = target_model
+        self.activations = None
+        self.gradients = None
+        target_layer.register_forward_hook(self._save_activations)
+        target_layer.register_full_backward_hook(self._save_gradients)
+
+    def _save_activations(self, module, module_input, output):
+        self.activations = output.detach()
+
+    def _save_gradients(self, module, grad_input, grad_output):
+        self.gradients = grad_output[0].detach()
+
+    def generate(self, input_tensor):
+        self.model.zero_grad()
+        logits = self.model(input_tensor)
+        target_class = logits.argmax(dim=1).item()
+        score = logits[0, target_class]
+        score.backward()
+
+        weights = self.gradients.mean(dim=(2, 3), keepdim=True)
+        cam = (weights * self.activations).sum(dim=1, keepdim=True)
+        cam = TF.relu(cam)
+        cam = cam.squeeze().cpu().numpy()
+
+        if cam.max() > cam.min():
+            cam = (cam - cam.min()) / (cam.max() - cam.min())
+        else:
+            cam = np.zeros_like(cam)
+        return cam
+
+
+_grad_cam = _LiveGradCAM(image_model, image_model.image_encoder.backbone.layer4)
+
+
+def _unnormalize_image(tensor: torch.Tensor) -> np.ndarray:
+    mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
+    std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
+    img = tensor.detach().cpu() * std + mean
+    img = img.clamp(0, 1).permute(1, 2, 0).numpy()
+    return img
+
+
+def _apply_jet_colormap(heatmap_01: np.ndarray) -> np.ndarray:
+    """
+    Lightweight 'jet'-style colormap (blue->green->yellow->red) implemented
+    directly in numpy -- verified against a known gradient before use (see
+    chat) -- avoiding a matplotlib dependency in the live request path.
+    """
+    r = np.clip(1.5 - np.abs(4 * heatmap_01 - 3), 0, 1)
+    g = np.clip(1.5 - np.abs(4 * heatmap_01 - 2), 0, 1)
+    b = np.clip(1.5 - np.abs(4 * heatmap_01 - 1), 0, 1)
+    return np.stack([r, g, b], axis=-1)
+
+
+def compute_grad_cam_overlay_base64(pil_image: Image.Image) -> str:
+    """
+    Live Grad-CAM overlay for the uploaded image, base64-encoded PNG.
+    DIAGNOSTIC/TRANSPARENCY ONLY -- does not influence the classification,
+    which comes from OCR + DistilBERT (see IMAGE_SALIENCY_NOTE).
+    """
+    input_tensor = _image_transform(pil_image).unsqueeze(0).to(DEVICE)
+    input_tensor.requires_grad_(True)
+
+    cam = _grad_cam.generate(input_tensor)
+    display_img = _unnormalize_image(input_tensor[0])
+
+    cam_resized = (
+        np.array(Image.fromarray((cam * 255).astype(np.uint8)).resize((224, 224), Image.BILINEAR)) / 255.0
+    )
+    heatmap_rgb = _apply_jet_colormap(cam_resized)
+
+    alpha = 0.45
+    overlay = np.clip((1 - alpha) * display_img + alpha * heatmap_rgb, 0, 1)
+    overlay_img = Image.fromarray((overlay * 255).astype(np.uint8))
+
+    buf = io.BytesIO()
+    overlay_img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 class TextRequest(BaseModel):
@@ -106,6 +209,8 @@ class ImageResponse(BaseModel):
     per_class_probabilities: dict
     ocr_extracted_text: str
     image_saliency_note: str
+    grad_cam_overlay_base64: str
+    images_not_stored_note: str
 
 
 def _predict_proba(texts):
@@ -166,6 +271,7 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
         )
 
     label, confidence, per_class, _top_tokens = _classify(combined_text)
+    grad_cam_overlay = compute_grad_cam_overlay_base64(pil_image)
 
     return ImageResponse(
         label=label,
@@ -173,6 +279,8 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
         per_class_probabilities=per_class,
         ocr_extracted_text=ocr_text,
         image_saliency_note=IMAGE_SALIENCY_NOTE,
+        grad_cam_overlay_base64=grad_cam_overlay,
+        images_not_stored_note=IMAGES_NOT_STORED_NOTE,
     )
 
 

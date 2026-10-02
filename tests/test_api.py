@@ -1,16 +1,11 @@
 """
-Tests for src/api.py. These are genuine integration tests, not pure unit
-tests -- importing src.api loads the real model from Hugging Face Hub at
-module level (by design, for serving-latency reasons), which needs real
-internet access. Not runnable in the sandbox that wrote this (no network);
-this is meant to run on your machine.
-
-First run will be slow-ish (downloading DistilBERT + tokenizer from the
-Hub, cached after). LIME explanations also add a few seconds per text
-request (100 samples) -- expect these tests to take longer than our other
-test suites, that's expected, not a bug.
+Tests for src/api.py. Genuine integration tests -- importing src.api loads
+real models from Hugging Face Hub (text model + image-only model for
+Grad-CAM) at module level, needs real internet access. Not runnable in the
+sandbox that wrote this; meant to run on your machine.
 """
 
+import base64
 import io
 
 import pytest
@@ -56,21 +51,11 @@ def test_predict_text_whitespace_only_returns_400():
 
 
 def _load_test_font(size: int = 40):
-    """
-    Tries common cross-platform TrueType font paths, falling back to
-    Pillow's scalable default font (load_default(size=...), added in
-    Pillow 10.1+) if none are found. A single hardcoded Linux-only path
-    broke this test on Windows: PIL silently fell back to its OLD tiny,
-    non-scalable bitmap font, rendering text too small for Tesseract to
-    read reliably -- OCR correctly returned nothing given genuinely
-    unreadable input, so the 400 we saw was actually the API behaving
-    correctly on a flawed test image, not an API bug.
-    """
     candidate_paths = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Linux
-        "C:\\Windows\\Fonts\\arialbd.ttf",  # Windows (Arial Bold)
-        "C:\\Windows\\Fonts\\arial.ttf",  # Windows (Arial)
-        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",  # macOS
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "C:\\Windows\\Fonts\\arialbd.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     ]
     for path in candidate_paths:
         try:
@@ -78,9 +63,9 @@ def _load_test_font(size: int = 40):
         except Exception:
             continue
     try:
-        return ImageFont.load_default(size=size)  # Pillow 10.1+, scalable
+        return ImageFont.load_default(size=size)
     except TypeError:
-        return ImageFont.load_default()  # older Pillow, tiny fixed size
+        return ImageFont.load_default()
 
 
 def _make_test_image_with_text(text: str) -> bytes:
@@ -88,11 +73,22 @@ def _make_test_image_with_text(text: str) -> bytes:
     draw = ImageDraw.Draw(img)
     font = _load_test_font(40)
     draw.text((20, 70), text, fill="black", font=font)
-
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
     return buf.read()
+
+
+def _assert_valid_grad_cam_overlay(body):
+    assert "grad_cam_overlay_base64" in body
+    assert len(body["grad_cam_overlay_base64"]) > 0
+    decoded_bytes = base64.b64decode(body["grad_cam_overlay_base64"])
+    decoded_img = Image.open(io.BytesIO(decoded_bytes))
+    assert decoded_img.size == (224, 224)
+    assert decoded_img.mode == "RGB"
+
+    assert "images_not_stored_note" in body
+    assert len(body["images_not_stored_note"]) > 0
 
 
 def test_predict_image_with_readable_text():
@@ -110,6 +106,7 @@ def test_predict_image_with_readable_text():
     assert len(body["ocr_extracted_text"].strip()) > 0
     assert "WONDERFUL" in body["ocr_extracted_text"].upper() or "DAY" in body["ocr_extracted_text"].upper()
     assert len(body["image_saliency_note"]) > 0
+    _assert_valid_grad_cam_overlay(body)
 
 
 def test_predict_image_blank_no_caption_returns_400():
@@ -140,6 +137,7 @@ def test_predict_image_no_text_but_has_caption_still_works():
     assert response.status_code == 200
     body = response.json()
     assert body["label"] in LABEL_NAMES
+    _assert_valid_grad_cam_overlay(body)
 
 
 def test_predict_image_not_an_image_returns_400():
