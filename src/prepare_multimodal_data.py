@@ -15,6 +15,16 @@ Dataset class at training time. OCR is CPU-bound and deterministic per
 image, so running it once here and caching the result avoids re-running
 it every epoch for zero benefit.
 
+NOTE on the OCR.space remote fallback (src/ocr.py): this script calls
+extract_text_from_image() with allow_remote_fallback=False on purpose.
+This is a one-time BULK preparation step over the whole dataset (hundreds
+of images) -- letting every near-empty-OCR row also hit OCR.space's free
+API here would burn a meaningful chunk of the free monthly/daily quota on
+offline dataset prep, for no benefit to the deployed app (that quota is
+better reserved for real live user requests in src/api.py). Local-only
+OCR here produces the exact same training data as before this fallback
+feature existed.
+
 Run with (from repo root, wherever the raw dataset + images are mounted --
 Kaggle, or locally if you've downloaded them):
 
@@ -53,9 +63,14 @@ def prepare_split(name: str, split_dir: str, image_dir: str) -> pd.DataFrame:
 
     df["label"] = df["label"].apply(normalize_label)
 
+    # allow_remote_fallback=False: bulk offline prep stays local-only /
+    # free-of-network-dependency (see module docstring above).
     ocr_texts = []
     for img_name in df["image_name"]:
-        ocr_texts.append(extract_text_from_image(os.path.join(image_dir, img_name)))
+        ocr_text, _used_remote = extract_text_from_image(
+            os.path.join(image_dir, img_name), allow_remote_fallback=False
+        )
+        ocr_texts.append(ocr_text)
     df["ocr_text"] = ocr_texts
 
     df["combined_text"] = [

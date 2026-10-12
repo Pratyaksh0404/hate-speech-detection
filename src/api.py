@@ -28,6 +28,16 @@ Design decisions:
 
 5. Raw text (not clean_text()) is fed directly to DistilBERT's tokenizer,
    matching exactly how the model was trained (see src/bert_dataset.py).
+
+6. images_not_stored_note is now CONDITIONAL on whether this specific
+   request actually triggered the OCR.space remote fallback (see
+   src/ocr.py). Local OCR still runs first, in-memory, with nothing ever
+   saved to disk -- that part of the original promise is unconditionally
+   true. But when local OCR returns little/no text, the image is also
+   sent to a third-party OCR service (OCR.space) over HTTPS to try to
+   recover it. Silently keeping the old blanket "never leaves your
+   machine" wording in that case would be false, so the response discloses
+   per-request whether the fallback actually fired.
 """
 
 import base64
@@ -46,6 +56,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from src.image_dataset import IMAGENET_MEAN, IMAGENET_STD, build_image_transform
 from src.models.multimodal_models import ImageOnlyClassifier
 from src.ocr import combine_ocr_and_caption, extract_text_from_image
+from fastapi.middleware.cors import CORSMiddleware
 
 MODEL_REPO = "Prat-04/hate-speech-distilbert"
 IMAGE_MODEL_REPO = "Prat-04/hate-speech-image-only"
@@ -66,9 +77,22 @@ IMAGE_SALIENCY_NOTE = (
     "it does NOT influence the classification above."
 )
 
+# Base promise: true on EVERY request, regardless of the OCR.space fallback.
 IMAGES_NOT_STORED_NOTE = (
     "Uploaded images are processed in memory for this single request only and "
     "are never saved to disk or logged."
+)
+
+# Shown instead of the base note ONLY on requests where local OCR returned
+# little/no text and the OCR.space fallback actually fired (see src/ocr.py's
+# OCR_SPACE_TRIGGER_MAX_LENGTH). Most requests will never see this version.
+IMAGES_NOT_STORED_NOTE_WITH_FALLBACK = (
+    "Uploaded images are processed in memory for this single request only and "
+    "are never saved to disk or logged by this app. However, for THIS image, "
+    "local on-device text extraction found little to no text, so the image "
+    "was also sent once, over HTTPS, to a third-party OCR service (OCR.space) "
+    "to try to recover the text. That is the only case in which an image "
+    "leaves this app's own process."
 )
 
 DISCLAIMER = (
@@ -83,6 +107,14 @@ app = FastAPI(
     title="Hate Speech Detection API",
     description=DISCLAIMER,
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 print("loading text model from Hugging Face Hub...")
@@ -261,7 +293,7 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
     except Exception:
         raise HTTPException(status_code=400, detail="could not read uploaded file as an image")
 
-    ocr_text = extract_text_from_image(pil_image)
+    ocr_text, used_remote_ocr = extract_text_from_image(pil_image)
 
     combined_text = combine_ocr_and_caption(ocr_text, caption)
     if not combined_text.strip():
@@ -273,6 +305,10 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
     label, confidence, per_class, _top_tokens = _classify(combined_text)
     grad_cam_overlay = compute_grad_cam_overlay_base64(pil_image)
 
+    images_not_stored_note = (
+        IMAGES_NOT_STORED_NOTE_WITH_FALLBACK if used_remote_ocr else IMAGES_NOT_STORED_NOTE
+    )
+
     return ImageResponse(
         label=label,
         confidence=confidence,
@@ -280,7 +316,7 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
         ocr_extracted_text=ocr_text,
         image_saliency_note=IMAGE_SALIENCY_NOTE,
         grad_cam_overlay_base64=grad_cam_overlay,
-        images_not_stored_note=IMAGES_NOT_STORED_NOTE,
+        images_not_stored_note=images_not_stored_note,
     )
 
 

@@ -1,78 +1,48 @@
 """
-OCR extraction for the multimodal meme dataset (master_plan.md section 4A.3).
+OCR pipeline: local Tesseract first (multi-variant preprocessing), with an
+OPTIONAL OCR.space fallback used only when the local result is empty or
+too short to be trustworthy.
 
-Design decisions:
+Why a fallback at all: real-world testing (see README "Known limitations")
+found that some memes — white text over a busy/photo background, or
+overlapping faces — defeat Tesseract even with the plain/inverted/
+thresholded multi-variant approach below. OCR.space's hosted engine
+handles some of these better. But routing an image to a third-party API
+is a real privacy trade-off against this project's own "images are never
+stored or logged" promise shown in the frontend, so the fallback is
+deliberately narrow:
 
-1. Uses pytesseract (a thin Python wrapper around the tesseract OCR
-   engine). Verified the underlying tesseract binary directly before
-   writing this: a low-resolution synthetic test image produced garbled,
-   spaceless output ("THISISATESTMEMECAPTION"), but the SAME text
-   rendered at a larger font size / higher effective resolution came out
-   correctly with proper word spacing ("THIS IS A TEST MEME CAPTION").
-   This confirms OCR quality here is highly resolution-dependent — so we
-   upscale small images before running OCR rather than feeding them in
-   at their original (sometimes tiny, per our EDA: widths from 471px) size.
+  - It only fires when local OCR looks untrustworthy (near-empty result).
+    It does NOT fire just because the result "looks wrong" — we have no
+    way to detect that without a ground truth, so we use length as the
+    only honest, measurable proxy we have. This will NOT catch cases
+    where Tesseract returns a confidently wrong but non-trivially-long
+    string (garbled real-image testing showed this happens — a busy
+    background can produce dozens of characters of noise, not an empty
+    result). That's a known, accepted gap in this heuristic, not a bug.
+  - OCR.space is called with the image bytes only, over HTTPS, and
+    nothing is written to disk on our side either way.
+  - If OCR.space is unreachable, rate-limited, or errors in any way, we
+    silently fall back to whatever local OCR already produced — this
+    path must never crash a request or block on a flaky third party.
 
-2. Convert to grayscale before OCR — a standard, well-established
-   preprocessing step: it removes color-channel noise that doesn't help
-   character recognition and tends to improve accuracy on real-world
-   images (memes with colored backgrounds/gradients) versus feeding raw
-   RGB in directly.
-
-3. Images with no readable text (OCR returns empty/whitespace) fall back
-   to an empty string, never a crash or placeholder token — the fusion
-   step then falls back to the dataset's own `sentence` caption alone for
-   that row, exactly the fallback behavior the plan asks us to document.
-
-4. combine_ocr_and_caption() keeps BOTH sources rather than one
-   overriding the other. Manual inspection of real examples (see chat)
-   showed the dataset's own `sentence` field is an inconsistent mix of
-   literal OCR-quality transcripts and paraphrased annotator captions —
-   neither source alone is fully reliable, so we give the model both and
-   let it learn which is informative per example, falling back to
-   whichever single source is non-empty if the other found nothing.
-5. Auto-detects the Tesseract-OCR binary on Windows. Installing the
-   pytesseract PIP package only installs the Python wrapper -- the actual
-   OCR engine is a separate native program that needs its own installer
-   (https://github.com/UB-Mannheim/tesseract/wiki on Windows), and that
-   installer does not add it to PATH by default. Rather than requiring
-   manual PATH edits, this checks the standard install locations and
-   points pytesseract directly at the binary if found. No-op on Linux/Mac,
-   where the binary is normally already on PATH.
-
-6. TesseractNotFoundError is NOT swallowed by the broad except below --
-   it's a genuine configuration/installation problem, not "this image has
-   no text," and silently treating it as the latter would make a real
-   setup bug indistinguishable from a normal empty result (exactly what
-   happened before this was separated out: see chat).
-7. Tries THREE preprocessing variants (plain grayscale, inverted, and
-   brightness-thresholded/binarized) and keeps whichever extracts the
-   most text. This was added after testing the deployed API on real
-   memes: classic internet memes overlay bold white text on busy/dark
-   photographic backgrounds, and plain grayscale OCR frequently extracts
-   NOTHING in that case (verified directly by reproducing the failure:
-   a synthetic busy-background image with white text returned empty
-   output from plain grayscale OCR, but the SAME image thresholded at
-   brightness>200 extracted the text perfectly). Tesseract is tuned for
-   dark text on a plain light background -- the classic meme format is
-   close to the opposite of that. This roughly triples OCR latency per
-   image, a deliberate accuracy-for-latency tradeoff given how badly
-   plain grayscale can fail on this exact, common case. Note this is a
-   simple, effective heuristic (a fixed brightness threshold), not a
-   fully robust solution (e.g. adaptive/Otsu thresholding would handle
-   more lighting conditions) -- a reasonable scope boundary, not a claim
-   this fixes every meme format.
+Privacy note wording is intentionally updated at the call site (src/api.py)
+to disclose this conditional third-party fallback honestly, rather than
+leaving the older "never leaves your machine" wording technically false.
 """
 
+import base64
 import os
 
 import pytesseract
+import requests
 from PIL import Image, ImageOps
 
+# --- Local Tesseract binary discovery (Windows dev convenience) -----------
 
 def _configure_tesseract_binary() -> None:
     if pytesseract.pytesseract.tesseract_cmd != "tesseract":
-        return  # already explicitly configured elsewhere -- don't override
+        return
     candidate_paths = [
         r"C:\Program Files\Tesseract-OCR\tesseract.exe",
         r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
@@ -85,67 +55,141 @@ def _configure_tesseract_binary() -> None:
 
 _configure_tesseract_binary()
 
+# --- OCR.space fallback configuration --------------------------------------
 
-def extract_text_from_image(image, min_upscale_width: int = 800) -> str:
+# Trigger: local OCR text shorter than this many characters is treated as
+# "untrustworthy" and we try OCR.space. This is a length-based heuristic
+# only (see module docstring) — it catches near-empty results, not
+# confidently-wrong-but-long ones.
+OCR_SPACE_TRIGGER_MAX_LENGTH = 10
+
+OCR_SPACE_ENDPOINT = "https://api.ocr.space/parse/image"
+
+# OCR.space requires an API key on every request. We default to the
+# public demo key ("helloworld") so the fallback works out of the box,
+# but the demo key has very low/shared rate limits and is NOT meant for
+# real usage. Set the OCR_SPACE_API_KEY environment variable to your own
+# free key (sign up at https://ocr.space/ocrapi, no credit card) before
+# relying on this in anything beyond local testing.
+OCR_SPACE_API_KEY = os.environ.get("OCR_SPACE_API_KEY", "helloworld")
+
+# Free-tier hard limit is 1 MB per request; we enforce a little below that
+# so our own encoding overhead doesn't push us over.
+OCR_SPACE_MAX_BYTES = 900_000
+
+OCR_SPACE_TIMEOUT_SECONDS = 8
+
+
+def _image_to_png_bytes(img: Image.Image) -> bytes:
+    import io
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _call_ocr_space(img: Image.Image) -> str:
     """
-    Runs OCR on a single image, returning "" (never None, never a crash)
-    if no text is found or the image can't be read.
+    Sends `img` to OCR.space as base64 and returns the extracted text, or
+    "" on ANY failure (network error, timeout, rate limit, bad response,
+    image too large). This function must never raise — it's a best-effort
+    fallback, not a required step, and a flaky third party must not be
+    able to break /predict/image.
+    """
+    try:
+        png_bytes = _image_to_png_bytes(img)
 
-    `image` can be either a file path (str) or an already-loaded
-    PIL.Image.Image. Accepting both matters in practice: the FastAPI
-    /predict/image endpoint already has the uploaded image in memory, and
-    round-tripping it through a temp file just to satisfy a path-only
-    function is unnecessary overhead -- and on Windows specifically,
-    tempfile.NamedTemporaryFile's exclusive file lock means a second
-    open() on that same path (e.g. from PIL) raises PermissionError,
-    which is exactly what happened before this function accepted images
-    directly (see chat).
+        # If the image is too large for the free tier, downscale once
+        # before giving up — better a slightly lower-res OCR attempt than
+        # no fallback attempt at all.
+        if len(png_bytes) > OCR_SPACE_MAX_BYTES:
+            scale = (OCR_SPACE_MAX_BYTES / len(png_bytes)) ** 0.5
+            new_size = (max(1, int(img.width * scale)), max(1, int(img.height * scale)))
+            img = img.resize(new_size, Image.LANCZOS)
+            png_bytes = _image_to_png_bytes(img)
+            if len(png_bytes) > OCR_SPACE_MAX_BYTES:
+                return ""  # still too big; not worth a guaranteed-rejected call
+
+        b64_payload = "data:image/png;base64," + base64.b64encode(png_bytes).decode("ascii")
+
+        response = requests.post(
+            OCR_SPACE_ENDPOINT,
+            data={
+                "apikey": OCR_SPACE_API_KEY,
+                "base64Image": b64_payload,
+                "OCREngine": 2,  # engine 2 handles noisy/busy backgrounds better than engine 1
+                "scale": "true",
+            },
+            timeout=OCR_SPACE_TIMEOUT_SECONDS,
+        )
+        if response.status_code != 200:
+            return ""
+
+        payload = response.json()
+        if payload.get("IsErroredOnProcessing"):
+            return ""
+
+        results = payload.get("ParsedResults") or []
+        if not results:
+            return ""
+
+        return (results[0].get("ParsedText") or "").strip()
+    except Exception:
+        # Any failure (DNS, timeout, malformed JSON, ...) just means "no
+        # fallback text available" -- never propagate this as a request
+        # error.
+        return ""
+
+
+def extract_text_from_image(image, min_upscale_width: int = 800, allow_remote_fallback: bool = True) -> tuple:
+    """
+    image can be a file path (str) or PIL.Image.Image directly.
+
+    Returns a tuple (text, used_remote_fallback) so callers (the API) can
+    show an honest "this image was sent to a third-party OCR service"
+    disclosure only when it actually happened, instead of a blanket
+    always-on or always-off note.
     """
     try:
         if isinstance(image, str):
-            img = Image.open(image).convert("L")  # grayscale
+            img = Image.open(image).convert("L")
         else:
             img = image.convert("L")
     except Exception:
-        return ""
+        return "", False
+
+    original_img = img  # keep an unmodified-grayscale copy for the remote fallback
 
     if img.width < min_upscale_width:
         scale = min_upscale_width / img.width
-        new_size = (int(img.width * scale), int(img.height * scale))
-        img = img.resize(new_size, Image.LANCZOS)
+        img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
 
-    # Try multiple preprocessing variants and keep whichever extracts the
-    # most text -- see design decision 7 above for why plain grayscale
-    # alone isn't reliable on classic meme-style images.
-    variants = [
-        img,
-        ImageOps.invert(img),
-        img.point(lambda p: 255 if p > 200 else 0),  # brightness threshold
-    ]
-
+    variants = [img, ImageOps.invert(img), img.point(lambda p: 255 if p > 200 else 0)]
     best_text = ""
     for variant in variants:
         try:
             candidate = pytesseract.image_to_string(variant).strip()
         except pytesseract.TesseractNotFoundError:
-            raise  # genuine setup/config error -- must NOT look like "no text found"
+            raise
         except Exception:
             candidate = ""
         if len(candidate) > len(best_text):
             best_text = candidate
 
-    return best_text
+    if allow_remote_fallback and len(best_text) < OCR_SPACE_TRIGGER_MAX_LENGTH:
+        remote_text = _call_ocr_space(original_img)
+        # Only prefer the remote result if it actually found more than
+        # the local pipeline did -- never let an empty/failed remote call
+        # overwrite a (short but real) local result.
+        if len(remote_text) > len(best_text):
+            return remote_text, True
+
+    return best_text, False
 
 
 def combine_ocr_and_caption(ocr_text: str, caption: str) -> str:
-    """
-    Combines OCR-extracted meme text with the dataset's provided caption.
-    See design decision 4 above for why both are kept rather than one
-    overriding the other.
-    """
     ocr_text = (ocr_text or "").strip()
     caption = (caption or "").strip()
-
     if ocr_text and caption:
         return f"{caption} | {ocr_text}"
     return ocr_text or caption
