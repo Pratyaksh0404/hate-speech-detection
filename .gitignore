@@ -38,3 +38,7 @@ data/multimodal/*
 .DS_Store
 .vscode/
 .idea/
+
+app/frontend/node_modules/
+app/frontend/dist/
+app/frontend/.vite/
