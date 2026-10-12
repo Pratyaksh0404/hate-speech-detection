@@ -3,6 +3,29 @@ import { API_BASE_URL } from '../config'
 import ResultLabel from './ResultLabel'
 import ConfidenceBars from './ConfidenceBars'
 
+// Click-to-try example images live in public/examples/ (Vite serves
+// public/ as static assets at the root). Each entry has a URL path
+// (relative to the web root), a display label for the thumbnail caption,
+// and a filename used when converting the fetched blob into a File object
+// (the backend sees this as the upload filename).
+const EXAMPLE_IMAGES = [
+  {
+    url: '/examples/example_positive.png',
+    label: '"Spread kindness"',
+    filename: 'example_positive.png',
+  },
+  {
+    url: '/examples/example_rude.png',
+    label: '"You are an idiot"',
+    filename: 'example_rude.png',
+  },
+  {
+    url: '/examples/example_neutral.png',
+    label: '"Code compiles"',
+    filename: 'example_neutral.png',
+  },
+]
+
 export default function ImageMode() {
   const [file, setFile] = useState(null)
   const [previewUrl, setPreviewUrl] = useState(null)
@@ -10,6 +33,7 @@ export default function ImageMode() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [exampleLoading, setExampleLoading] = useState(false)
 
   function handleFileChange(e) {
     const selected = e.target.files[0]
@@ -18,6 +42,30 @@ export default function ImageMode() {
     setPreviewUrl(URL.createObjectURL(selected))
     setResult(null)
     setError(null)
+  }
+
+  async function handleExampleClick(example) {
+    // Fetch the static image and convert it into a File object so the
+    // existing FormData upload flow works unchanged. This is the same
+    // technique as drag-and-drop: we get a Blob from fetch(), wrap it
+    // in a File constructor, and set it as if the user had chosen it
+    // via the file picker.
+    setExampleLoading(true)
+    setError(null)
+    setResult(null)
+    try {
+      const response = await fetch(example.url)
+      if (!response.ok) throw new Error('Failed to load example image')
+      const blob = await response.blob()
+      const fileObj = new File([blob], example.filename, { type: blob.type })
+      setFile(fileObj)
+      setPreviewUrl(example.url)
+      setCaption('')
+    } catch (err) {
+      setError(err.message || 'Could not load example image.')
+    } finally {
+      setExampleLoading(false)
+    }
   }
 
   async function handleSubmit() {
@@ -49,6 +97,30 @@ export default function ImageMode() {
 
   return (
     <div className="mode-panel">
+      {/* ── Click-to-try example images ────────────────────────── */}
+      <div className="example-images-section">
+        <span className="example-label">Try an example:</span>
+        <div className="example-images-row">
+          {EXAMPLE_IMAGES.map((example) => (
+            <button
+              key={example.filename}
+              className="example-image-card"
+              onClick={() => handleExampleClick(example)}
+              disabled={exampleLoading || loading}
+              title={`Load ${example.label}`}
+            >
+              <img
+                src={example.url}
+                alt={example.label}
+                className="example-image-thumb"
+              />
+              <span className="example-image-label">{example.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── File upload (existing) ─────────────────────────────── */}
       <div className="upload-row">
         <label className="file-upload-label">
           📁 Choose an image

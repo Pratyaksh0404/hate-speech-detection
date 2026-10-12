@@ -290,6 +290,60 @@ body {
   margin: 0;
 }
 
+/* ── Example image thumbnails (image mode) ──────────────────────────── */
+
+.example-images-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.example-images-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.example-image-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 6px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  /* reset button defaults */
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+.example-image-card:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.15);
+}
+
+.example-image-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.example-image-thumb {
+  width: 120px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.example-image-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
 @media (max-width: 480px) {
   .confidence-row {
     grid-template-columns: 100px 1fr 40px;
@@ -299,5 +353,9 @@ body {
   }
   .result-card {
     padding: 14px;
+  }
+  .example-image-thumb {
+    width: 90px;
+    height: 60px;
   }
 }
