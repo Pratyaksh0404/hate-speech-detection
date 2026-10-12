@@ -1,11 +1,17 @@
 # =============================================================================
-# Multi-stage Dockerfile for HuggingFace Spaces (free Docker SDK tier).
+# Multi-stage Dockerfile for Render.com's free Web Service tier.
+#
+# (Originally written for HuggingFace Spaces' Docker SDK, but HF now
+# requires a PRO subscription for Docker/Gradio Spaces on free accounts --
+# only their Static SDK is free. Render's free tier genuinely supports
+# Docker with no card required, so we deploy there instead. The container
+# itself needed only two changes: (1) listen on Render's $PORT instead of
+# a hardcoded 7860, and (2) pre-download model weights at build time,
+# since Render's free tier has no persistent disk -- every cold start
+# after the ~15min idle spin-down would otherwise re-download from HF Hub.)
 #
 # Stage 1 — Build the React frontend with Vite.
 # Stage 2 — Slim Python image that serves FastAPI + the built static files.
-#
-# HF Spaces runs containers as uid 1000; we create that user explicitly.
-# The app listens on port 7860 (HF Spaces default).
 # =============================================================================
 
 # ── Stage 1: React build ─────────────────────────────────────────────────────
@@ -28,7 +34,7 @@ RUN apt-get update && \
         tesseract-ocr-eng && \
     rm -rf /var/lib/apt/lists/*
 
-# Create non-root user (HF Spaces requirement: uid 1000)
+# Create a non-root user (good practice regardless of host; harmless on Render)
 RUN useradd -m -u 1000 user
 USER user
 ENV HOME=/home/user \
@@ -47,13 +53,36 @@ RUN pip install --no-cache-dir --user \
 COPY --chown=user requirements-deploy.txt ./
 RUN pip install --no-cache-dir --user -r requirements-deploy.txt
 
+# ── Pre-download model weights at BUILD time ─────────────────────────────────
+# Render's free tier has no persistent disk, so without this, every cold
+# start after the container spins down (idle ~15min) would re-download
+# ~300MB from HF Hub before it could serve a single request. Baking the
+# weights into the image here means that only happens once, at deploy
+# time, not on every wake-up. Repo IDs are duplicated from src/api.py's
+# MODEL_REPO / IMAGE_MODEL_REPO constants -- update both places if those
+# ever change.
+RUN python -c "\
+from transformers import AutoTokenizer, AutoModelForSequenceClassification; \
+from huggingface_hub import hf_hub_download; \
+AutoTokenizer.from_pretrained('Prat-04/hate-speech-distilbert'); \
+AutoModelForSequenceClassification.from_pretrained('Prat-04/hate-speech-distilbert'); \
+hf_hub_download(repo_id='Prat-04/hate-speech-image-only', filename='image_only_resnet18.pt')"
+
+# From here on, loading these two repos should hit the local cache only --
+# never the network. (Set AFTER the download step above, which needs
+# network access; Docker ENV only affects subsequent layers, not the one
+# that just ran.)
+ENV HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1
+
 # ── Copy application code ────────────────────────────────────────────────────
 COPY --chown=user src/ ./src/
 
 # ── Copy built frontend from Stage 1 ─────────────────────────────────────────
 COPY --from=frontend-build --chown=user /build/dist ./static
 
-EXPOSE 7860
-
-# Uvicorn serves FastAPI; static files are mounted inside the app.
-CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "7860"]
+# Render assigns its own port via $PORT at runtime (not a fixed value we can
+# hardcode) -- shell form is needed here instead of JSON-array form so that
+# ${PORT:-7860} actually gets expanded. The 7860 fallback keeps this image
+# runnable with a plain `docker run` locally, where $PORT isn't set.
+CMD uvicorn src.api:app --host 0.0.0.0 --port ${PORT:-7860}

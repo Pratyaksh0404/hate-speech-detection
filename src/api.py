@@ -44,6 +44,24 @@ Design decisions:
    the built React frontend from the same origin. In local dev (no
    ``static/`` directory), the existing JSON root endpoint is preserved
    and CORS allows the Vite dev server.
+
+8. DEPLOYMENT MEMORY FOOTPRINT (Render's free tier = 512MB RAM, 0.1 CPU):
+   a. The text DistilBERT model is dynamically quantized (int8 weights for
+      its Linear layers) right after loading, CPU-only -- a standard,
+      no-retraining technique for serving BERT-family models on CPU. It
+      shrinks the model's largest layers and speeds up CPU inference.
+      Expected accuracy impact is negligible, but it IS numerically a
+      different model than the one the README's reported metrics were
+      measured on: those describe the full-precision model; this
+      quantized copy is a serving-time optimization, disclosed here
+      rather than silently swapped in.
+   b. The image-only ResNet18 model (used ONLY for the diagnostic
+      Grad-CAM overlay -- never for the actual classification) is
+      lazy-loaded on first use instead of at import time. Most traffic
+      is /predict/text, which never touches it, so this keeps baseline
+      memory low; the first /predict/image request after a cold start
+      pays a one-time load cost instead of every process paying for a
+      model that may go unused.
 """
 
 import base64
@@ -145,18 +163,52 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
 model = AutoModelForSequenceClassification.from_pretrained(MODEL_REPO)
 model.to(DEVICE)
 model.eval()
-print("text model loaded.")
+
+# Dynamic quantization (int8 weights for nn.Linear layers) -- CPU-only in
+# PyTorch, which is exactly our deployment target. DistilBERT is mostly
+# Linear layers, so this meaningfully shrinks the model's memory footprint
+# and speeds up CPU inference, with no retraining and negligible accuracy
+# impact. See module docstring point 8a for why this is disclosed rather
+# than silently swapped in.
+if DEVICE.type == "cpu":
+    model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+    print("text model loaded (dynamically quantized for CPU serving).")
+else:
+    print("text model loaded (GPU available -- skipping CPU-only quantization).")
 
 _lime_explainer = LimeTextExplainer(class_names=LABEL_NAMES)
 
-print("loading image-only model (Grad-CAM diagnostic only) from Hugging Face Hub...")
-_image_checkpoint_path = hf_hub_download(repo_id=IMAGE_MODEL_REPO, filename="image_only_resnet18.pt")
-image_model = ImageOnlyClassifier(n_classes=2)
-image_model.load_state_dict(torch.load(_image_checkpoint_path, map_location=DEVICE))
-image_model.to(DEVICE)
-image_model.eval()
-_image_transform = build_image_transform(train=False)
-print("image-only model loaded.")
+# ---------------------------------------------------------------------------
+# Image-only model + Grad-CAM: LAZY-LOADED (see module docstring point 8b).
+# Not loaded here at import time -- only on the first /predict/image
+# request, via _ensure_image_model_loaded() below. image_model, _grad_cam
+# and _image_transform start as None/undefined and are filled in once.
+# ---------------------------------------------------------------------------
+image_model = None
+_grad_cam = None
+_image_transform = build_image_transform(train=False)  # cheap: no weights, just transform config
+
+
+def _ensure_image_model_loaded():
+    """
+    Loads the image-only ResNet18 + wraps it with Grad-CAM hooks, but only
+    the first time this is called. Safe to call on every /predict/image
+    request -- it's a no-op after the first successful load.
+    """
+    global image_model, _grad_cam
+    if image_model is not None:
+        return
+
+    print("loading image-only model (Grad-CAM diagnostic only) from Hugging Face Hub...")
+    checkpoint_path = hf_hub_download(repo_id=IMAGE_MODEL_REPO, filename="image_only_resnet18.pt")
+    loaded_model = ImageOnlyClassifier(n_classes=2)
+    loaded_model.load_state_dict(torch.load(checkpoint_path, map_location=DEVICE))
+    loaded_model.to(DEVICE)
+    loaded_model.eval()
+
+    image_model = loaded_model
+    _grad_cam = _LiveGradCAM(image_model, image_model.image_encoder.backbone.layer4)
+    print("image-only model loaded.")
 
 
 class _LiveGradCAM:
@@ -196,9 +248,6 @@ class _LiveGradCAM:
         else:
             cam = np.zeros_like(cam)
         return cam
-
-
-_grad_cam = _LiveGradCAM(image_model, image_model.image_encoder.backbone.layer4)
 
 
 def _unnormalize_image(tensor: torch.Tensor) -> np.ndarray:
@@ -298,7 +347,8 @@ def _classify(text: str):
 
 
 # ---------------------------------------------------------------------------
-# Health-check endpoint -- useful for HF Spaces to verify the container is up.
+# Health-check endpoint -- Render (or any host) can poll this to verify the
+# container is up and ready.
 # ---------------------------------------------------------------------------
 @app.get("/health")
 def health():
@@ -334,6 +384,8 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
         )
 
     label, confidence, per_class, _top_tokens = _classify(combined_text)
+
+    _ensure_image_model_loaded()  # no-op after the first call (see docstring point 8b)
     grad_cam_overlay = compute_grad_cam_overlay_base64(pil_image)
 
     images_not_stored_note = (
