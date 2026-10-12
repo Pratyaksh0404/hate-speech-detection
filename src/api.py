@@ -38,15 +38,25 @@ Design decisions:
    recover it. Silently keeping the old blanket "never leaves your
    machine" wording in that case would be false, so the response discloses
    per-request whether the fallback actually fired.
+
+7. Static-file serving: when a ``static/`` directory exists next to the
+   ``src/`` package (i.e. the Docker container's layout), the app serves
+   the built React frontend from the same origin. In local dev (no
+   ``static/`` directory), the existing JSON root endpoint is preserved
+   and CORS allows the Vite dev server.
 """
 
 import base64
 import io
+from pathlib import Path
 
 import numpy as np
 import torch
 import torch.nn.functional as TF
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from huggingface_hub import hf_hub_download
 from lime.lime_text import LimeTextExplainer
 from PIL import Image
@@ -56,12 +66,19 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 from src.image_dataset import IMAGENET_MEAN, IMAGENET_STD, build_image_transform
 from src.models.multimodal_models import ImageOnlyClassifier
 from src.ocr import combine_ocr_and_caption, extract_text_from_image
-from fastapi.middleware.cors import CORSMiddleware
 
 MODEL_REPO = "Prat-04/hate-speech-distilbert"
 IMAGE_MODEL_REPO = "Prat-04/hate-speech-image-only"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 LABEL_NAMES = ["Hate Speech", "Offensive Language", "Neither"]
+
+# ---------------------------------------------------------------------------
+# Resolve the static/ directory: it lives ONE level above the src/ package.
+# In Docker this is /home/user/app/static (see Dockerfile COPY --from=...).
+# In local dev it won't exist, which is fine -- the app just skips mounting.
+# ---------------------------------------------------------------------------
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+SERVE_FRONTEND = STATIC_DIR.is_dir()
 
 IMAGE_SALIENCY_NOTE = (
     "This prediction is based on OCR-extracted text + caption, not raw image "
@@ -109,6 +126,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# ---------------------------------------------------------------------------
+# CORS: only needed in local dev (Vite dev server on a different port).
+# In production the frontend is served from the same origin, so browsers
+# never send a CORS preflight. We add the middleware unconditionally --
+# when the origin matches, the header is set; otherwise it's a no-op.
+# ---------------------------------------------------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -274,6 +297,14 @@ def _classify(text: str):
     return label, confidence, per_class, top_tokens
 
 
+# ---------------------------------------------------------------------------
+# Health-check endpoint -- useful for HF Spaces to verify the container is up.
+# ---------------------------------------------------------------------------
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/predict/text", response_model=TextResponse)
 def predict_text(request: TextRequest):
     label, confidence, per_class, top_tokens = _classify(request.text)
@@ -320,6 +351,36 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
     )
 
 
-@app.get("/")
-def root():
-    return {"message": "Hate Speech Detection API. See /docs for interactive Swagger UI.", "disclaimer": DISCLAIMER}
+# ---------------------------------------------------------------------------
+# Static-file serving (production only).
+#
+# When the built React frontend exists at ../static/ (Docker layout), we:
+#   1. Define an explicit GET / that returns static/index.html
+#   2. Mount the rest of static/ as a catch-all at "/" so JS/CSS/images/
+#      examples/ all resolve correctly
+#
+# The mount MUST come AFTER all API routes because FastAPI tries routes in
+# registration order -- if the StaticFiles catch-all were first, it would
+# swallow /predict/text, /predict/image, /health, and /docs.
+#
+# In local dev (no static/ directory), the original JSON root endpoint is
+# kept so you still get a useful response when you hit http://localhost:8000.
+# ---------------------------------------------------------------------------
+if SERVE_FRONTEND:
+    @app.get("/")
+    def serve_index():
+        return FileResponse(str(STATIC_DIR / "index.html"))
+
+    # html=True makes StaticFiles return index.html for directory requests
+    # and for any path that doesn't match a real file (SPA client-side
+    # routing fallback).
+    app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+    print(f"serving frontend from {STATIC_DIR}")
+else:
+    @app.get("/")
+    def root():
+        return {
+            "message": "Hate Speech Detection API. See /docs for interactive Swagger UI.",
+            "disclaimer": DISCLAIMER,
+        }
+    print("no static/ directory found -- running in API-only (dev) mode")

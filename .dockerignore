@@ -1,0 +1,56 @@
+# ── Git / version control ────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Python caches & environments ─────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# ── Data (large, not redistributable) ────────────────────────────────
+data/
+
+# ── Saved model checkpoints (downloaded from HF Hub at runtime) ──────
+*.pt
+*.pth
+*.h5
+*.ckpt
+*.bin
+*.joblib
+*.pkl
+models/
+checkpoints/
+runs/
+mlruns/
+
+# ── Notebooks & analysis outputs ─────────────────────────────────────
+notebooks/
+.ipynb_checkpoints/
+results/
+
+# ── Tests (not needed in production image) ───────────────────────────
+tests/
+
+# ── Frontend build artifacts & deps (rebuilt in Stage 1) ─────────────
+app/frontend/node_modules/
+app/frontend/dist/
+app/frontend/.vite/
+
+# ── Env / secrets / OS / editor ──────────────────────────────────────
+.env
+*.log
+.DS_Store
+.vscode/
+.idea/
+
+# ── Docs not needed in image ─────────────────────────────────────────
+README.md
+HANDOFF_PROMPT.md
+master_plan.md
+LICENSE
