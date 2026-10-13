@@ -24,7 +24,11 @@ Design decisions:
 
 4. top_contributing_tokens uses LIME -- the same method used throughout
    this project's offline error analysis -- with a reduced num_samples
-   (100, vs. 500 used offline) to keep single-request latency reasonable.
+   (30 in this deployed version, vs. 500 used offline) to keep
+   single-request latency survivable on Render's free tier's 0.1 vCPU.
+   Fewer samples means noisier/less stable token attributions than the
+   offline analysis; that's a disclosed trade-off for serving under a
+   hard compute ceiling, not an attempt to pass off a different method.
 
 5. Raw text (not clean_text()) is fed directly to DistilBERT's tokenizer,
    matching exactly how the model was trained (see src/bert_dataset.py).
@@ -45,30 +49,41 @@ Design decisions:
    ``static/`` directory), the existing JSON root endpoint is preserved
    and CORS allows the Vite dev server.
 
-8. DEPLOYMENT MEMORY FOOTPRINT (Render's free tier = 512MB RAM, 0.1 CPU).
-   A first deploy attempt was OOM-killed the instant the text model's
-   float32 weights finished loading -- before even reaching the
-   quantization step below it. Root cause: quantizing AFTER a full
-   float32 load doesn't avoid the peak, because for a moment both the
-   float32 original and the newly-built quantized copy exist in memory
-   together -- worse than either alone, right at the moment it mattered.
-   Two changes fixed this:
-   a. The text DistilBERT model is now loaded directly in bfloat16
-      (``torch_dtype=torch.bfloat16, low_cpu_mem_usage=True``) instead of
-      loading in float32 and quantizing afterward. This means the float32
-      version (~268MB of weights) is never materialized at all -- weights
-      come off disk already halved (~134MB), and ``low_cpu_mem_usage``
-      skips transformers' usual "randomly initialize, then overwrite with
-      real weights" pattern, which otherwise briefly allocates the model
-      twice. bfloat16, not float16, specifically: PyTorch's CPU kernels
-      support bfloat16 far more completely than float16, which still
-      hits "not implemented for Half" errors on several ops in CPU
-      builds. This IS numerically a different model than the one the
-      README's reported metrics were measured on (those describe the
-      full-precision model); expected accuracy impact is negligible for
-      a model this size, but it's disclosed here rather than silently
-      swapped in.
-   b. The image-only ResNet18 model (used ONLY for the diagnostic
+8. DEPLOYMENT CONSTRAINTS (Render's free tier = 512MB RAM, 0.1 vCPU).
+   This went through three iterations, each fixing what the previous one
+   exposed:
+   a. MEMORY, attempt 1: a first deploy was OOM-killed the instant the
+      text model's float32 weights finished loading, before even
+      reaching a post-load ``quantize_dynamic`` call. Quantizing AFTER a
+      full float32 load doesn't avoid that peak -- for a moment both the
+      float32 original and the newly-built quantized copy exist in
+      memory together, which is worse than either alone, right when it
+      mattered.
+   b. MEMORY, attempt 2: switched to loading the text model directly in
+      bfloat16 (``torch_dtype=torch.bfloat16, low_cpu_mem_usage=True``),
+      so the float32 version was never materialized at all. This fixed
+      the OOM, but bfloat16 on a generic CPU (no fast native bfloat16
+      math -- it gets emulated) doesn't actually speed up computation,
+      only memory. Combined with LIME's 100 forward passes per text
+      request on a throttled 0.1 vCPU, responses took 3-4 minutes, which
+      in turn made Render's health check (5s timeout) fail and restart
+      the service mid-request.
+   c. THE FIX: the text model ships as an ALREADY dynamically-quantized
+      (int8) file, produced offline (``export_quantized_model.py``, repo
+      root) on a machine with no memory ceiling, then uploaded to the
+      ``Prat-04/hate-speech-distilbert`` HF repo as
+      ``distilbert_quantized_int8.pt``. The server just
+      ``torch.load()``s this file directly -- it never holds a float32
+      copy, AND real int8 quantized Linear layers run through PyTorch's
+      optimized CPU GEMM kernels, which are genuinely faster than
+      float32, unlike bfloat16. This IS numerically a different model
+      than the one the README's reported metrics were measured on (those
+      describe the full-precision model); expected accuracy impact is
+      negligible for a model this size, but it's disclosed here rather
+      than silently swapped in. LIME's sample count was also cut to 30
+      for this deployment (see point 4) as a second, independent lever
+      on latency.
+   d. The image-only ResNet18 model (used ONLY for the diagnostic
       Grad-CAM overlay -- never for the actual classification) is
       lazy-loaded on first use instead of at import time, AND its
       torchvision-dependent imports (src.image_dataset,
@@ -94,7 +109,7 @@ from huggingface_hub import hf_hub_download
 from lime.lime_text import LimeTextExplainer
 from PIL import Image
 from pydantic import BaseModel
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from transformers import AutoTokenizer
 
 from src.ocr import combine_ocr_and_caption, extract_text_from_image
 
@@ -180,17 +195,27 @@ app.add_middleware(
 print("loading text model from Hugging Face Hub...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
 
-# Load directly in bfloat16 with low_cpu_mem_usage instead of the default
-# float32 (see module docstring point 8a for the full reasoning -- in
-# short, loading float32 and quantizing afterward doesn't avoid the peak
-# memory moment, which is what actually OOM-killed a first deploy attempt
-# on Render's 512MB free tier).
-model = AutoModelForSequenceClassification.from_pretrained(
-    MODEL_REPO, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True
+# Load the ALREADY int8-quantized model file directly (see module
+# docstring point 8c for the full story of why: loading float32 and
+# quantizing afterward -- or even loading in bfloat16 -- either OOMs or
+# is too slow on Render's free tier). This file is produced offline by
+# export_quantized_model.py (repo root) and uploaded to this same HF
+# repo; torch.load() here reconstructs the pickled, already-quantized
+# nn.Module directly -- a float32 copy of this model is never created
+# anywhere in this process.
+#
+# weights_only=False is required to unpickle a full nn.Module (not just
+# a plain state_dict of tensors), which is what torch.save(quantized_model,
+# ...) wrote. This is safe here specifically because it's a file WE
+# authored and control in our own HF repo -- weights_only=False should
+# never be used to load a model file from an untrusted source, since
+# unpickling arbitrary data can execute arbitrary code.
+_quantized_model_path = hf_hub_download(
+    repo_id=MODEL_REPO, filename="distilbert_quantized_int8.pt"
 )
-model.to(DEVICE)
+model = torch.load(_quantized_model_path, map_location=DEVICE, weights_only=False)
 model.eval()
-print("text model loaded (bfloat16, low-memory load).")
+print("text model loaded (pre-quantized int8, no float32 copy ever created).")
 
 _lime_explainer = LimeTextExplainer(class_names=LABEL_NAMES)
 
@@ -351,11 +376,14 @@ def _predict_proba(texts):
     ).to(DEVICE)
     with torch.no_grad():
         logits = model(**encoding).logits
-    # .float() before .numpy(): numpy has no native bfloat16 dtype, so a
-    # bfloat16 tensor raises "Got unsupported ScalarType BFloat16" if you
-    # try to convert it directly. Upcasting back to float32 here is cheap
-    # (this is just the small [batch, 3] logits tensor, not the model's
-    # weights) and makes the result a normal numpy array downstream.
+    # .float() is a defensive no-op in the current (int8-quantized) setup --
+    # a dynamically-quantized model's activations/logits are already
+    # float32, since only the Linear layers' WEIGHTS are int8; the matmul
+    # itself still produces float32 output. Left in because it's harmless
+    # and protects against a past issue: an earlier bfloat16 experiment
+    # needed exactly this cast, since numpy has no native bfloat16 dtype
+    # and converting one directly raises "Got unsupported ScalarType
+    # BFloat16".
     return torch.softmax(logits, dim=1).float().cpu().numpy()
 
 
@@ -369,8 +397,12 @@ def _classify(text: str):
     confidence = float(probs[pred_idx])
     per_class = {LABEL_NAMES[i]: float(probs[i]) for i in range(len(LABEL_NAMES))}
 
+    # num_samples=30, not the 100 used before: even with a genuinely fast
+    # int8-quantized model, 100 forward passes on Render's throttled
+    # 0.1 vCPU was a meaningful chunk of the latency. See module
+    # docstring points 4 and 8c for the full trade-off being made here.
     exp = _lime_explainer.explain_instance(
-        text, _predict_proba, num_features=8, num_samples=100, labels=(pred_idx,)
+        text, _predict_proba, num_features=8, num_samples=30, labels=(pred_idx,)
     )
     top_tokens = [
         {"token": word, "weight": round(weight, 4)} for word, weight in exp.as_list(label=pred_idx)
