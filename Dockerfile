@@ -61,11 +61,19 @@ RUN pip install --no-cache-dir --user -r requirements-deploy.txt
 # time, not on every wake-up. Repo IDs are duplicated from src/api.py's
 # MODEL_REPO / IMAGE_MODEL_REPO constants -- update both places if those
 # ever change.
+#
+# IMPORTANT: this uses huggingface_hub's snapshot_download/hf_hub_download
+# directly -- it just fetches and caches the raw repo files over HTTP. It
+# deliberately does NOT import transformers or construct the actual model
+# (e.g. via AutoModelForSequenceClassification.from_pretrained), because
+# that would load ~270MB of float32 weights into RAM on top of torch's own
+# import footprint. Render's FREE BUILD MACHINE is also capped at 512MB --
+# an earlier version of this step did exactly that and was OOM-killed
+# during the build (not even at runtime). Plain file downloads use at most
+# a few tens of MB, well clear of that limit.
 RUN python -c "\
-from transformers import AutoTokenizer, AutoModelForSequenceClassification; \
-from huggingface_hub import hf_hub_download; \
-AutoTokenizer.from_pretrained('Prat-04/hate-speech-distilbert'); \
-AutoModelForSequenceClassification.from_pretrained('Prat-04/hate-speech-distilbert'); \
+from huggingface_hub import snapshot_download, hf_hub_download; \
+snapshot_download(repo_id='Prat-04/hate-speech-distilbert'); \
 hf_hub_download(repo_id='Prat-04/hate-speech-image-only', filename='image_only_resnet18.pt')"
 
 # From here on, loading these two repos should hit the local cache only --
