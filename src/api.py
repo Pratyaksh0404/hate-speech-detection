@@ -45,23 +45,38 @@ Design decisions:
    ``static/`` directory), the existing JSON root endpoint is preserved
    and CORS allows the Vite dev server.
 
-8. DEPLOYMENT MEMORY FOOTPRINT (Render's free tier = 512MB RAM, 0.1 CPU):
-   a. The text DistilBERT model is dynamically quantized (int8 weights for
-      its Linear layers) right after loading, CPU-only -- a standard,
-      no-retraining technique for serving BERT-family models on CPU. It
-      shrinks the model's largest layers and speeds up CPU inference.
-      Expected accuracy impact is negligible, but it IS numerically a
-      different model than the one the README's reported metrics were
-      measured on: those describe the full-precision model; this
-      quantized copy is a serving-time optimization, disclosed here
-      rather than silently swapped in.
+8. DEPLOYMENT MEMORY FOOTPRINT (Render's free tier = 512MB RAM, 0.1 CPU).
+   A first deploy attempt was OOM-killed the instant the text model's
+   float32 weights finished loading -- before even reaching the
+   quantization step below it. Root cause: quantizing AFTER a full
+   float32 load doesn't avoid the peak, because for a moment both the
+   float32 original and the newly-built quantized copy exist in memory
+   together -- worse than either alone, right at the moment it mattered.
+   Two changes fixed this:
+   a. The text DistilBERT model is now loaded directly in bfloat16
+      (``torch_dtype=torch.bfloat16, low_cpu_mem_usage=True``) instead of
+      loading in float32 and quantizing afterward. This means the float32
+      version (~268MB of weights) is never materialized at all -- weights
+      come off disk already halved (~134MB), and ``low_cpu_mem_usage``
+      skips transformers' usual "randomly initialize, then overwrite with
+      real weights" pattern, which otherwise briefly allocates the model
+      twice. bfloat16, not float16, specifically: PyTorch's CPU kernels
+      support bfloat16 far more completely than float16, which still
+      hits "not implemented for Half" errors on several ops in CPU
+      builds. This IS numerically a different model than the one the
+      README's reported metrics were measured on (those describe the
+      full-precision model); expected accuracy impact is negligible for
+      a model this size, but it's disclosed here rather than silently
+      swapped in.
    b. The image-only ResNet18 model (used ONLY for the diagnostic
       Grad-CAM overlay -- never for the actual classification) is
-      lazy-loaded on first use instead of at import time. Most traffic
-      is /predict/text, which never touches it, so this keeps baseline
-      memory low; the first /predict/image request after a cold start
-      pays a one-time load cost instead of every process paying for a
-      model that may go unused.
+      lazy-loaded on first use instead of at import time, AND its
+      torchvision-dependent imports (src.image_dataset,
+      src.models.multimodal_models -- both import torchvision at module
+      level) are deferred into the same lazy-loading function instead of
+      sitting at the top of this file. Most traffic is /predict/text,
+      which never touches any of this, so none of it costs memory until
+      the first /predict/image request after a cold start.
 """
 
 import base64
@@ -81,9 +96,13 @@ from PIL import Image
 from pydantic import BaseModel
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-from src.image_dataset import IMAGENET_MEAN, IMAGENET_STD, build_image_transform
-from src.models.multimodal_models import ImageOnlyClassifier
 from src.ocr import combine_ocr_and_caption, extract_text_from_image
+
+# NOTE: src.image_dataset and src.models.multimodal_models are NOT imported
+# here at module level -- both pull in torchvision, and that import itself
+# has a real memory cost. They're imported lazily inside
+# _ensure_image_model_loaded() instead, so that cost is deferred to the
+# first /predict/image request (see module docstring point 8b).
 
 MODEL_REPO = "Prat-04/hate-speech-distilbert"
 IMAGE_MODEL_REPO = "Prat-04/hate-speech-image-only"
@@ -160,44 +179,53 @@ app.add_middleware(
 
 print("loading text model from Hugging Face Hub...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
-model = AutoModelForSequenceClassification.from_pretrained(MODEL_REPO)
+
+# Load directly in bfloat16 with low_cpu_mem_usage instead of the default
+# float32 (see module docstring point 8a for the full reasoning -- in
+# short, loading float32 and quantizing afterward doesn't avoid the peak
+# memory moment, which is what actually OOM-killed a first deploy attempt
+# on Render's 512MB free tier).
+model = AutoModelForSequenceClassification.from_pretrained(
+    MODEL_REPO, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True
+)
 model.to(DEVICE)
 model.eval()
-
-# Dynamic quantization (int8 weights for nn.Linear layers) -- CPU-only in
-# PyTorch, which is exactly our deployment target. DistilBERT is mostly
-# Linear layers, so this meaningfully shrinks the model's memory footprint
-# and speeds up CPU inference, with no retraining and negligible accuracy
-# impact. See module docstring point 8a for why this is disclosed rather
-# than silently swapped in.
-if DEVICE.type == "cpu":
-    model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
-    print("text model loaded (dynamically quantized for CPU serving).")
-else:
-    print("text model loaded (GPU available -- skipping CPU-only quantization).")
+print("text model loaded (bfloat16, low-memory load).")
 
 _lime_explainer = LimeTextExplainer(class_names=LABEL_NAMES)
 
 # ---------------------------------------------------------------------------
 # Image-only model + Grad-CAM: LAZY-LOADED (see module docstring point 8b).
-# Not loaded here at import time -- only on the first /predict/image
-# request, via _ensure_image_model_loaded() below. image_model, _grad_cam
-# and _image_transform start as None/undefined and are filled in once.
+# Nothing here -- not the model, not even the torchvision-dependent
+# imports -- happens at module import time. It all happens inside
+# _ensure_image_model_loaded() below, on the first /predict/image request.
+# These all start as None and are filled in exactly once.
 # ---------------------------------------------------------------------------
 image_model = None
 _grad_cam = None
-_image_transform = build_image_transform(train=False)  # cheap: no weights, just transform config
+_image_transform = None
+IMAGENET_MEAN = None
+IMAGENET_STD = None
 
 
 def _ensure_image_model_loaded():
     """
     Loads the image-only ResNet18 + wraps it with Grad-CAM hooks, but only
     the first time this is called. Safe to call on every /predict/image
-    request -- it's a no-op after the first successful load.
+    request -- it's a no-op after the first successful load. Also where
+    the torchvision-dependent imports happen (deferred from module level
+    for the same memory-footprint reason -- see module docstring point 8b).
     """
-    global image_model, _grad_cam
+    global image_model, _grad_cam, _image_transform, IMAGENET_MEAN, IMAGENET_STD
     if image_model is not None:
         return
+
+    from src.image_dataset import IMAGENET_MEAN as _MEAN, IMAGENET_STD as _STD, build_image_transform
+    from src.models.multimodal_models import ImageOnlyClassifier
+
+    IMAGENET_MEAN = _MEAN
+    IMAGENET_STD = _STD
+    _image_transform = build_image_transform(train=False)
 
     print("loading image-only model (Grad-CAM diagnostic only) from Hugging Face Hub...")
     checkpoint_path = hf_hub_download(repo_id=IMAGE_MODEL_REPO, filename="image_only_resnet18.pt")
@@ -323,7 +351,12 @@ def _predict_proba(texts):
     ).to(DEVICE)
     with torch.no_grad():
         logits = model(**encoding).logits
-    return torch.softmax(logits, dim=1).cpu().numpy()
+    # .float() before .numpy(): numpy has no native bfloat16 dtype, so a
+    # bfloat16 tensor raises "Got unsupported ScalarType BFloat16" if you
+    # try to convert it directly. Upcasting back to float32 here is cheap
+    # (this is just the small [batch, 3] logits tensor, not the model's
+    # weights) and makes the result a normal numpy array downstream.
+    return torch.softmax(logits, dim=1).float().cpu().numpy()
 
 
 def _classify(text: str):
