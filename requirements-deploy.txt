@@ -1,15 +1,41 @@
 # =============================================================================
-# Runtime-only dependencies for the HuggingFace Spaces Docker deployment.
+# Runtime-only dependencies for the Render.com Docker deployment.
 #
 # NOTE: torch and torchvision are NOT listed here -- they are installed
 # separately in the Dockerfile via the CPU-only PyTorch index
 # (https://download.pytorch.org/whl/cpu) to save ~1.8 GB vs the full
-# CUDA wheels.
+# CUDA wheels. They're still needed on disk for the lazy-loaded
+# /predict/image Grad-CAM path (see src/api.py module docstring point 8),
+# but are never imported for a plain /predict/text request -- so they cost
+# disk space here, not runtime RAM, for the vast majority of traffic.
+#
+# onnxruntime serves the TEXT model (see src/api.py point 8e / the OOM
+# history): it's listed here, not with torch above, because it installs
+# fine from plain PyPI (no special CPU-only index needed) and -- more
+# importantly -- because it's the thing that actually keeps text-request
+# memory low. `import torch` alone cost ~165MB in testing; onnxruntime's
+# import footprint is a fraction of that.
+#
+# tokenizers (not transformers.AutoTokenizer!) handles text tokenization --
+# see src/light_tokenizer.py. A diagnostic proved AutoTokenizer.from_pretrained()
+# unconditionally imports torch internally (+240MB), regardless of the
+# USE_TORCH=0/USE_TF=0 env vars transformers documents for this exact
+# situation (tried; had zero effect on this transformers version). `tokenizers`
+# is the lightweight Rust library transformers' own fast tokenizers wrap --
+# loading the same tokenizer.json directly through it gives identical token
+# ids with none of transformers' import overhead.
+#
+# transformers itself is STILL listed below -- not for the text path, but
+# because src/models/multimodal_models.py (the lazy-loaded /predict/image
+# Grad-CAM path) imports it. That's an acceptable one-time cost on a rare,
+# already-torch-requiring code path, not something worth engineering around.
 # =============================================================================
 
 numpy>=1.24
 scikit-learn>=1.3
 transformers>=4.30
+tokenizers>=0.19
+onnxruntime>=1.17
 pytesseract>=0.3.10
 Pillow>=10.0
 lime>=0.2.0

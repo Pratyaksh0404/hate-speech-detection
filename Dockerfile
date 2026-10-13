@@ -71,17 +71,18 @@ RUN pip install --no-cache-dir --user -r requirements-deploy.txt
 # an earlier version of this step did exactly that and was OOM-killed
 # during the build (not even at runtime). Plain file downloads use at most
 # a few tens of MB, well clear of that limit.
-# ALSO fetches distilbert_quantized_int8.pt -- the pre-quantized text
-# model produced offline by export_quantized_model.py (repo root) and
-# uploaded to the SAME hate-speech-distilbert HF repo. api.py loads this
-# file directly (torch.load) instead of the regular fp32 weights that
-# snapshot_download also happens to pull down as part of the repo; those
-# extra fp32 files go unused at runtime but are harmless, just a bit of
-# wasted image size.
+# ALSO fetches distilbert_int8.onnx -- the ONNX-exported, int8-quantized
+# text model produced offline by export_onnx_model.py (repo root) and
+# uploaded to the SAME hate-speech-distilbert HF repo. api.py serves this
+# file through onnxruntime (see module docstring point 8e) instead of the
+# older distilbert_quantized_int8.pt torch file, and instead of the
+# regular fp32 weights that snapshot_download also happens to pull down as
+# part of the repo; those extra files go unused at runtime but are
+# harmless, just a bit of wasted image size.
 RUN python -c "\
 from huggingface_hub import snapshot_download, hf_hub_download; \
 snapshot_download(repo_id='Prat-04/hate-speech-distilbert'); \
-hf_hub_download(repo_id='Prat-04/hate-speech-distilbert', filename='distilbert_quantized_int8.pt'); \
+hf_hub_download(repo_id='Prat-04/hate-speech-distilbert', filename='distilbert_int8.onnx'); \
 hf_hub_download(repo_id='Prat-04/hate-speech-image-only', filename='image_only_resnet18.pt')"
 
 # From here on, loading these two repos should hit the local cache only --

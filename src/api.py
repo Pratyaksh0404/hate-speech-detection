@@ -92,15 +92,41 @@ Design decisions:
       sitting at the top of this file. Most traffic is /predict/text,
       which never touches any of this, so none of it costs memory until
       the first /predict/image request after a cold start.
+   e. THE REAL FIX (this revision): a staged memory probe (see chat /
+      memory_probe.py) showed that point (d) wasn't enough, because
+      `import torch` ITSELF -- not any model weight -- cost ~165MB of
+      RAM, and loading even the already-quantized .pt file from (c) cost
+      a further ~187MB on top of that (almost certainly the one-time cost
+      of PyTorch initializing its quantized-GEMM backend, fbgemm/qnnpack,
+      on first use -- a near-fixed cost unrelated to model size). Those
+      two alone, plus the rest of the library stack, totalled ~590MB even
+      on the "fixed" path from (c) -- over the 512MB cap. So the text
+      model now ships as an ONNX file (export_onnx_model.py, repo root)
+      and is served through `onnxruntime` instead of torch+transformers'
+      model classes. `onnxruntime` has a far smaller import footprint
+      than `torch` (no autograd/training machinery), and loading a
+      pre-quantized .onnx file doesn't trigger a comparable backend-init
+      tax. Just as importantly: `torch` and `torch.nn.functional` are no
+      longer imported at MODULE level at all -- they're imported lazily,
+      INSIDE the functions that still need them for the image-only
+      Grad-CAM path (see _ensure_image_model_loaded, _unnormalize_image,
+      _LiveGradCAM.generate), so a plain /predict/text request -- the
+      overwhelming majority of traffic -- never pays torch's import cost
+      in the first place. (`from __future__ import annotations` below is
+      what makes this safe: without it, a module-level function signature
+      like `def f(tensor: torch.Tensor)` would try to evaluate `torch.Tensor`
+      at import time and crash with a NameError, since `torch` wouldn't be
+      imported yet.)
 """
+
+from __future__ import annotations
 
 import base64
 import io
 from pathlib import Path
 
 import numpy as np
-import torch
-import torch.nn.functional as TF
+import onnxruntime as ort
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -109,19 +135,39 @@ from huggingface_hub import hf_hub_download
 from lime.lime_text import LimeTextExplainer
 from PIL import Image
 from pydantic import BaseModel
-from transformers import AutoTokenizer
 
+from src.light_tokenizer import LightBertTokenizer
 from src.ocr import combine_ocr_and_caption, extract_text_from_image
 
-# NOTE: src.image_dataset and src.models.multimodal_models are NOT imported
-# here at module level -- both pull in torchvision, and that import itself
-# has a real memory cost. They're imported lazily inside
-# _ensure_image_model_loaded() instead, so that cost is deferred to the
-# first /predict/image request (see module docstring point 8b).
+# NOTE: we deliberately do NOT use `transformers.AutoTokenizer` here, even
+# though it would be the obvious choice. A direct diagnostic (diffing
+# sys.modules before/after AutoTokenizer.from_pretrained()) showed it
+# unconditionally imports torch -- plus torchgen, sympy, mpmath, and
+# safetensors -- internally, about +240MB, regardless of the documented
+# USE_TORCH=0 / USE_TF=0 environment variables transformers offers for
+# exactly this situation (tried first; had zero measurable effect on this
+# transformers version). src/light_tokenizer.py loads the same
+# tokenizer.json file directly through the lightweight `tokenizers`
+# library (the Rust backend transformers' own fast tokenizers wrap
+# internally) and produces identical token ids without any of that
+# overhead -- verified in verify_light_tokenizer.py (repo root).
+
+# NOTE: torch, torchvision, src.image_dataset, and
+# src.models.multimodal_models are NOT imported here at module level --
+# all four are only needed for the rare /predict/image Grad-CAM diagnostic
+# path, and torch alone costs ~165MB of RAM just to import (see point 8e
+# above). They're imported lazily inside _ensure_image_model_loaded() and
+# the other image-only helper functions below, so that cost is deferred
+# until the first /predict/image request after a cold start -- most
+# traffic (/predict/text) never pays it at all.
 
 MODEL_REPO = "Prat-04/hate-speech-distilbert"
 IMAGE_MODEL_REPO = "Prat-04/hate-speech-image-only"
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Real torch device detection happens in _ensure_image_model_loaded() (the
+# only place that needs it), once torch is actually imported. "cpu" is the
+# correct value everywhere this constant is used before that point, since
+# the text/ONNX path never touches a GPU regardless.
+DEVICE = "cpu"
 LABEL_NAMES = ["Hate Speech", "Offensive Language", "Neither"]
 
 # ---------------------------------------------------------------------------
@@ -193,29 +239,19 @@ app.add_middleware(
 )
 
 print("loading text model from Hugging Face Hub...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO)
+tokenizer = LightBertTokenizer(MODEL_REPO, max_length=128)
 
-# Load the ALREADY int8-quantized model file directly (see module
-# docstring point 8c for the full story of why: loading float32 and
-# quantizing afterward -- or even loading in bfloat16 -- either OOMs or
-# is too slow on Render's free tier). This file is produced offline by
-# export_quantized_model.py (repo root) and uploaded to this same HF
-# repo; torch.load() here reconstructs the pickled, already-quantized
-# nn.Module directly -- a float32 copy of this model is never created
-# anywhere in this process.
-#
-# weights_only=False is required to unpickle a full nn.Module (not just
-# a plain state_dict of tensors), which is what torch.save(quantized_model,
-# ...) wrote. This is safe here specifically because it's a file WE
-# authored and control in our own HF repo -- weights_only=False should
-# never be used to load a model file from an untrusted source, since
-# unpickling arbitrary data can execute arbitrary code.
-_quantized_model_path = hf_hub_download(
-    repo_id=MODEL_REPO, filename="distilbert_quantized_int8.pt"
-)
-model = torch.load(_quantized_model_path, map_location=DEVICE, weights_only=False)
-model.eval()
-print("text model loaded (pre-quantized int8, no float32 copy ever created).")
+# Load the ONNX-exported, int8-quantized text model directly (see module
+# docstring point 8e for the full story of why this replaced the torch
+# .pt file: `import torch` itself, plus a one-time quantized-backend-init
+# cost on first load, together cost ~350MB regardless of how small the
+# model file was). This file is produced offline by export_onnx_model.py
+# (repo root) and uploaded to this same HF repo. onnxruntime loads and
+# runs it without torch ever being imported in this process for the text
+# path.
+_onnx_model_path = hf_hub_download(repo_id=MODEL_REPO, filename="distilbert_int8.onnx")
+_onnx_session = ort.InferenceSession(_onnx_model_path, providers=["CPUExecutionProvider"])
+print("text model loaded (ONNX int8, served via onnxruntime -- torch never imported).")
 
 _lime_explainer = LimeTextExplainer(class_names=LABEL_NAMES)
 
@@ -241,13 +277,20 @@ def _ensure_image_model_loaded():
     the torchvision-dependent imports happen (deferred from module level
     for the same memory-footprint reason -- see module docstring point 8b).
     """
-    global image_model, _grad_cam, _image_transform, IMAGENET_MEAN, IMAGENET_STD
+    global image_model, _grad_cam, _image_transform, IMAGENET_MEAN, IMAGENET_STD, DEVICE
     if image_model is not None:
         return
+
+    # torch/torchvision are imported HERE, not at module level -- this is
+    # the only code path that needs them (see module docstring point 8e).
+    # A plain /predict/text request never reaches this function, so it
+    # never pays torch's ~165MB import cost.
+    import torch
 
     from src.image_dataset import IMAGENET_MEAN as _MEAN, IMAGENET_STD as _STD, build_image_transform
     from src.models.multimodal_models import ImageOnlyClassifier
 
+    DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
     IMAGENET_MEAN = _MEAN
     IMAGENET_STD = _STD
     _image_transform = build_image_transform(train=False)
@@ -285,6 +328,13 @@ class _LiveGradCAM:
         self.gradients = grad_output[0].detach()
 
     def generate(self, input_tensor):
+        # Local import -- see module docstring point 8e. generate() is only
+        # ever called from compute_grad_cam_overlay_base64(), which itself
+        # only runs after _ensure_image_model_loaded() has already imported
+        # torch, but importing it again here is cheap (sys.modules cache
+        # hit) and keeps this method correct even if that ever changes.
+        import torch.nn.functional as TF
+
         self.model.zero_grad()
         logits = self.model(input_tensor)
         target_class = logits.argmax(dim=1).item()
@@ -303,7 +353,9 @@ class _LiveGradCAM:
         return cam
 
 
-def _unnormalize_image(tensor: torch.Tensor) -> np.ndarray:
+def _unnormalize_image(tensor: "torch.Tensor") -> np.ndarray:
+    import torch  # local import -- see module docstring point 8e
+
     mean = torch.tensor(IMAGENET_MEAN).view(3, 1, 1)
     std = torch.tensor(IMAGENET_STD).view(3, 1, 1)
     img = tensor.detach().cpu() * std + mean
@@ -371,20 +423,20 @@ class ImageResponse(BaseModel):
 
 
 def _predict_proba(texts):
-    encoding = tokenizer(
-        list(texts), truncation=True, max_length=128, padding=True, return_tensors="pt"
-    ).to(DEVICE)
-    with torch.no_grad():
-        logits = model(**encoding).logits
-    # .float() is a defensive no-op in the current (int8-quantized) setup --
-    # a dynamically-quantized model's activations/logits are already
-    # float32, since only the Linear layers' WEIGHTS are int8; the matmul
-    # itself still produces float32 output. Left in because it's harmless
-    # and protects against a past issue: an earlier bfloat16 experiment
-    # needed exactly this cast, since numpy has no native bfloat16 dtype
-    # and converting one directly raises "Got unsupported ScalarType
-    # BFloat16".
-    return torch.softmax(logits, dim=1).float().cpu().numpy()
+    # LightBertTokenizer already returns numpy int64 arrays, dynamically
+    # padded to this batch's longest sequence and truncated to 128 tokens
+    # (see src/light_tokenizer.py) -- no extra kwargs needed here, and
+    # nothing in this path ever imports torch.
+    ort_inputs = tokenizer(list(texts))
+    (logits,) = _onnx_session.run(["logits"], ort_inputs)
+
+    # Plain numpy softmax -- no torch needed. Subtracting the row max before
+    # exponentiating is the standard numerically-stable formulation (avoids
+    # overflow for large logits); this is mathematically identical to
+    # torch.softmax, just without the torch dependency.
+    shifted = logits - logits.max(axis=1, keepdims=True)
+    exp = np.exp(shifted)
+    return exp / exp.sum(axis=1, keepdims=True)
 
 
 def _classify(text: str):
