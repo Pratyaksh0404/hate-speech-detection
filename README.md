@@ -1,11 +1,20 @@
 # Hate Speech Detection (Multimodal: Text + Image)
 
-**Status:** 🚧 In progress — Phase 1 (repo setup, text data pipeline)
+**Status:** ✅ Deployed — [try the live demo](https://hate-speech-detection-dd7q.onrender.com)
 
 A 3-class hate speech / offensive language / neither classifier, built as an
 end-to-end system: data pipeline → model ladder (classical ML → BiLSTM →
 CNN-BiLSTM → attention → DistilBERT) → multimodal text+image fusion model →
-FastAPI backend → frontend → free-tier deployment.
+FastAPI backend → React frontend → free-tier deployment on Render.
+
+**Heads up on first load:** the free-tier instance spins down after ~15
+minutes idle, so the first request after a while can take 30-50s to wake it
+back up — subsequent requests are fast (text predictions typically respond
+in well under a second). See [Deployment](#deployment-free-tier-memory-engineering)
+below for why that specific number, and for an important disclosed
+limitation of this deployment (the image mode's visual explainability
+overlay is intentionally disabled here due to free-tier memory limits —
+classification itself is unaffected).
 
 ## ⚠️ Responsible use disclaimer
 
@@ -17,8 +26,18 @@ used as the sole basis for real moderation decisions against real people.
 ## Project structure
 
 See `src/` for the data/model code, `notebooks/` for exploratory analysis,
-`app/` for the API + frontend (added in later phases), and `tests/` for unit
-tests.
+`app/` for the FastAPI backend (`app/` and `src/api.py`) + React frontend
+(`app/frontend/`), and `tests/` for unit/integration tests.
+
+One-off scripts at the repo root document the deployment journey and are
+meant to be re-run, not just read — see
+[Deployment](#deployment-free-tier-memory-engineering) for what each one
+does and why it exists: `export_onnx_model.py`, `compare_onnx_vs_torch.py`,
+`verify_light_tokenizer.py`, `memory_probe.py`, `memory_probe_onnx.py`,
+`diagnose_tokenizer_load.py`. `export_quantized_model.py` is kept for
+historical reference but is **superseded** by `export_onnx_model.py` — it
+produced an earlier, torch-based quantized model that turned out not to
+fix the actual memory problem (see below).
 
 ## Multimodal (Image + Text) Results
 
@@ -249,8 +268,93 @@ stays visible.
 **This is the model now deployed** at
 [huggingface.co/Prat-04/hate-speech-distilbert](https://huggingface.co/Prat-04/hate-speech-distilbert),
 replacing the pre-augmentation version. Full model card includes all of the
-above.
+above. (The production API serves an ONNX-exported, int8-quantized export
+of this exact model, not the raw PyTorch checkpoint — see
+[Deployment](#deployment-free-tier-memory-engineering) for why, and for a
+full accuracy comparison confirming the export changes nothing material.)
 
+## Deployment: Free-Tier Memory Engineering
+
+Deployed as a Docker container on Render's free Web Service tier: **512MB
+RAM, 0.1 vCPU, no persistent disk**. Fitting a transformer NLP model, an
+explainability library, an OCR engine, and a second vision model into that
+budget took four real iterations — each one fixing what the previous one
+exposed, each disclosed here rather than smoothed over.
+
+**The journey:**
+
+1. **Float32 load + runtime quantization → OOM.** Loading the model in full
+   precision and then calling `quantize_dynamic()` needs the float32
+   original AND the new quantized copy in memory simultaneously, even if
+   only for a moment. That moment was enough to get OOM-killed on the
+   512MB free instance.
+2. **bfloat16 load → fixed memory, broke latency.** Loading directly in
+   bfloat16 (`low_cpu_mem_usage=True`) avoided ever materializing a float32
+   copy and fixed the OOM — but most CPUs, including Render's free
+   instances, have no fast native bfloat16 math and emulate it, which can
+   be as slow as (or slower than) plain float32. Combined with LIME's ~100
+   forward passes per text request on a throttled 0.1 vCPU, responses took
+   3-4 minutes and Render's 5-second health-check timeout killed the
+   service mid-request.
+3. **Pre-quantized int8 .pt file → still OOM, further upstream than
+   expected.** Quantizing offline (`export_quantized_model.py`) and
+   `torch.load()`-ing the finished int8 file directly seemed like the
+   fix — no float32 copy ever created, genuinely faster CPU kernels. It
+   still OOM'd. A staged memory probe (`memory_probe.py`) traced why:
+   **`import torch` alone cost ~165MB**, before a single weight loaded, and
+   loading even the *already-quantized* model added **another ~187MB on
+   top** — almost certainly PyTorch initializing its quantized-GEMM backend
+   (fbgemm/qnnpack) on first use, a cost tied to the framework, not the
+   model's file size. Total steady-state: **~660MB**. The model was never
+   really the problem — the library stack underneath it was.
+4. **ONNX Runtime + a torch-free tokenizer → the actual fix.** The text
+   model is now exported to ONNX and quantized via
+   `onnxruntime.quantization` (`export_onnx_model.py`), served through
+   `onnxruntime.InferenceSession` instead of torch+transformers
+   (`src/api.py`). `onnxruntime`'s import footprint is a fraction of
+   torch's, and loading a pre-quantized `.onnx` file doesn't trigger a
+   comparable backend-init tax. A second, less obvious culprit turned up
+   along the way: `transformers.AutoTokenizer.from_pretrained()`
+   unconditionally imports torch internally — confirmed directly by diffing
+   `sys.modules` before/after the call (`diagnose_tokenizer_load.py`) —
+   regardless of the `USE_TORCH=0`/`USE_TF=0` environment variables
+   transformers documents for exactly this situation (tried first; had zero
+   effect). `src/light_tokenizer.py` loads the same `tokenizer.json` file
+   directly through the lightweight `tokenizers` library instead (the same
+   Rust backend `AutoTokenizer`'s fast tokenizers wrap internally),
+   verified byte-identical to `AutoTokenizer`'s output across truncation,
+   padding, and batch edge cases (`verify_light_tokenizer.py`).
+
+**Result — measured, not estimated** (`memory_probe_onnx.py`):
+
+| | Before (int8 .pt + torch) | After (ONNX + light tokenizer) |
+|---|---|---|
+| Steady-state memory, text serving | ~660MB | **~284MB** |
+| Fits in 512MB free tier? | No | **Yes, with ~228MB headroom** |
+| LIME explainability | kept | **kept** |
+
+**Accuracy validated, not assumed** (`compare_onnx_vs_torch.py`, full
+3,718-row held-out test set — the same split used for every other metric in
+this README): the quantized ONNX model's accuracy (0.8835) and macro-F1
+(0.7576) are *marginally higher* than the original float32 model's (0.8776
+/ 0.7486), with a 1.69% prediction-disagreement rate and no systematic bias
+toward either model. Quantization cost nothing measurable here.
+
+**A second, separate OOM, and a disclosed trade-off.** Fixing text serving
+didn't fix `/predict/image`: the lazy-loaded Grad-CAM diagnostic path
+(image-only ResNet18, used purely for the attention-overlay visualization,
+never for the actual classification) still has to import torch +
+torchvision + transformers + a second model all at once on first use — on
+top of the ~284MB already resident for text serving, that doesn't fit
+either, and caused a real 502 in production. Rather than attempt a third
+memory trick on an already-weak model (test macro-F1 0.51, see above), the
+Grad-CAM overlay is **disabled on this deployment** (`ENABLE_IMAGE_GRAD_CAM=0`
+in the Dockerfile, gating `GRAD_CAM_ENABLED` in `src/api.py`) and the API
+says so directly in its response rather than silently omitting it. This
+does **not** affect classification — OCR + the text model produce the
+actual prediction in `/predict/image` either way and use none of
+torch/torchvision. Run the project locally (`uvicorn src.api:app --reload`,
+no environment variable set) to see the full Grad-CAM feature.
 
 ## Progress log
 
@@ -268,9 +372,14 @@ above.
 - [x] Qualitative error analysis (10-15 misclassified examples, categorized)
 - [x] LIME explainability (text predictions)
 - [x] Grad-CAM visualizations (image predictions)
-- [ ] FastAPI backend
-- [ ] Frontend
-- [ ] CI + deployment
+- [x] FastAPI backend
+- [x] Frontend
+- [x] Deployment (Render, free tier — see
+      [Deployment](#deployment-free-tier-memory-engineering) for the memory
+      engineering this took)
+- [ ] CI (automated test suite exists in `tests/`, but no pipeline runs it
+      automatically yet — tests currently require running manually against
+      a real environment with internet access to Hugging Face Hub)
 
 ## License
 

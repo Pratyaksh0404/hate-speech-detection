@@ -147,3 +147,40 @@ def test_predict_image_not_an_image_returns_400():
         data={"caption": ""},
     )
     assert response.status_code == 400
+
+
+def test_predict_image_grad_cam_disabled(monkeypatch):
+    """
+    Covers GRAD_CAM_ENABLED=False -- the ACTUAL configuration running in
+    production (Dockerfile sets ENABLE_IMAGE_GRAD_CAM=0 to avoid OOMing
+    Render's free tier; see src/api.py's GRAD_CAM_ENABLED docstring). Every
+    other test above runs with it True (the local-dev default), so without
+    this test the production code path had zero coverage. Monkeypatching
+    the module attribute directly (rather than the env var + a module
+    reload) is deliberate -- GRAD_CAM_ENABLED is read at request time, not
+    cached into a closure, so this exercises exactly the same branch the
+    deployed server takes without the cost of re-importing src.api and
+    re-downloading/reloading the ONNX session.
+    """
+    import src.api as api_module
+
+    monkeypatch.setattr(api_module, "GRAD_CAM_ENABLED", False)
+
+    image_bytes = _make_test_image_with_text("HAVE A WONDERFUL DAY")
+    response = client.post(
+        "/predict/image",
+        files={"image": ("test.png", image_bytes, "image/png")},
+        data={"caption": ""},
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    # Classification must be fully correct and unaffected -- it comes from
+    # OCR + the text model either way, never from the Grad-CAM path.
+    assert body["label"] in LABEL_NAMES
+    assert 0.0 <= body["confidence"] <= 1.0
+    assert len(body["ocr_extracted_text"].strip()) > 0
+
+    # The diagnostic overlay itself must be cleanly absent, not broken.
+    assert body["grad_cam_overlay_base64"] == ""
+    assert body["image_saliency_note"] == api_module.GRAD_CAM_DISABLED_NOTE
