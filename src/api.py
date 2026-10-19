@@ -123,6 +123,7 @@ from __future__ import annotations
 
 import base64
 import io
+import os
 from pathlib import Path
 
 import numpy as np
@@ -169,6 +170,29 @@ IMAGE_MODEL_REPO = "Prat-04/hate-speech-image-only"
 # the text/ONNX path never touches a GPU regardless.
 DEVICE = "cpu"
 LABEL_NAMES = ["Hate Speech", "Offensive Language", "Neither"]
+
+# Grad-CAM diagnostic overlay: OFF by default, ON unless explicitly disabled.
+# Render's Dockerfile sets ENABLE_IMAGE_GRAD_CAM=0 as an environment
+# variable (not a code change) -- local `uvicorn --reload` runs still get
+# the full feature. WHY: the first /predict/image request after a cold
+# start has to import torch (~165MB) + torchvision (~82MB) + transformers
+# (~27MB, pulled in by src/models/multimodal_models.py) + the ResNet18
+# weights, ALL AT ONCE, on top of the ~284MB already resident for text
+# serving -- comfortably over Render's 512MB cap. This caused an actual
+# 502 (OOM) in production. OCR + text classification -- the real
+# prediction, documented as never influenced by this diagnostic overlay --
+# use none of torch/torchvision and are completely unaffected either way.
+GRAD_CAM_ENABLED = os.environ.get("ENABLE_IMAGE_GRAD_CAM", "1") != "0"
+
+GRAD_CAM_DISABLED_NOTE = (
+    "The vision-model attention overlay (Grad-CAM) is disabled on this "
+    "deployment: loading it requires PyTorch + torchvision + a second "
+    "model all at once, which does not fit in Render's free-tier 512MB "
+    "memory limit on top of the text model already serving every "
+    "request. This does NOT affect the classification above -- that "
+    "comes from OCR + the text model, never from this diagnostic overlay "
+    "(see below). Run this project locally to see the Grad-CAM overlay."
+)
 
 # ---------------------------------------------------------------------------
 # Resolve the static/ directory: it lives ONE level above the src/ package.
@@ -502,8 +526,16 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
 
     label, confidence, per_class, _top_tokens = _classify(combined_text)
 
-    _ensure_image_model_loaded()  # no-op after the first call (see docstring point 8b)
-    grad_cam_overlay = compute_grad_cam_overlay_base64(pil_image)
+    # See GRAD_CAM_ENABLED above: disabled by default on Render (memory),
+    # on by default locally. Classification above never depends on this --
+    # it's OCR + the text model either way.
+    if GRAD_CAM_ENABLED:
+        _ensure_image_model_loaded()  # no-op after the first call (see docstring point 8b)
+        grad_cam_overlay = compute_grad_cam_overlay_base64(pil_image)
+        saliency_note = IMAGE_SALIENCY_NOTE
+    else:
+        grad_cam_overlay = ""
+        saliency_note = GRAD_CAM_DISABLED_NOTE
 
     images_not_stored_note = (
         IMAGES_NOT_STORED_NOTE_WITH_FALLBACK if used_remote_ocr else IMAGES_NOT_STORED_NOTE
@@ -514,7 +546,7 @@ async def predict_image(image: UploadFile = File(...), caption: str = Form(defau
         confidence=confidence,
         per_class_probabilities=per_class,
         ocr_extracted_text=ocr_text,
-        image_saliency_note=IMAGE_SALIENCY_NOTE,
+        image_saliency_note=saliency_note,
         grad_cam_overlay_base64=grad_cam_overlay,
         images_not_stored_note=images_not_stored_note,
     )

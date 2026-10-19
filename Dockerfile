@@ -90,7 +90,18 @@ hf_hub_download(repo_id='Prat-04/hate-speech-image-only', filename='image_only_r
 # network access; Docker ENV only affects subsequent layers, not the one
 # that just ran.)
 ENV HF_HUB_OFFLINE=1 \
-    TRANSFORMERS_OFFLINE=1
+    TRANSFORMERS_OFFLINE=1 \
+    ENABLE_IMAGE_GRAD_CAM=0
+
+# ENABLE_IMAGE_GRAD_CAM=0 -- disables the /predict/image Grad-CAM diagnostic
+# overlay in THIS deployed container only (src/api.py's GRAD_CAM_ENABLED
+# flag; local `uvicorn --reload` runs still get it by default). The first
+# /predict/image request would otherwise import torch+torchvision+
+# transformers and load a second model all at once -- on top of the ~284MB
+# already resident for text serving, that doesn't fit Render's 512MB free
+# tier and caused an actual 502 (OOM) in production. OCR + text
+# classification -- the real prediction -- are unaffected; see
+# src/api.py's GRAD_CAM_DISABLED_NOTE for what the user sees instead.
 
 # ── Copy application code ────────────────────────────────────────────────────
 COPY --chown=user src/ ./src/

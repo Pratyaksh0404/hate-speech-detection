@@ -155,11 +155,13 @@ export default function ImageMode() {
 
           <div className="grad-cam-section">
             <h3>Vision model attention (diagnostic only)</h3>
-            <img
-              src={`data:image/png;base64,${result.grad_cam_overlay_base64}`}
-              alt="Grad-CAM attention overlay"
-              className="grad-cam-image"
-            />
+            {result.grad_cam_overlay_base64 ? (
+              <img
+                src={`data:image/png;base64,${result.grad_cam_overlay_base64}`}
+                alt="Grad-CAM attention overlay"
+                className="grad-cam-image"
+              />
+            ) : null}
             <p className="saliency-note">{result.image_saliency_note}</p>
           </div>
 
